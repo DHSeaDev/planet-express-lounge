@@ -1,0 +1,296 @@
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body,#app{background:transparent}
+#app{width:100%;max-width:340px;font-family:'Oswald',var(--font-sans);overflow:hidden}
+
+#machine{background:#1a0a2e;border-radius:12px;border:2px solid #4a1a7a;padding:0 0 10px}
+
+#header{background:#2a0a4a;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #4a1a7a}
+#header-title{color:#c8a8ff;font-size:13px;font-weight:700;letter-spacing:2px}
+#coin-display{display:flex;align-items:center;gap:6px}
+#coin-icon{width:18px;height:18px;border-radius:50%;background:#f0b429;border:2px solid #c88a00;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#7a4a00}
+#coin-count{color:#f0b429;font-size:15px;font-weight:700}
+#coin-rate{color:#a080c0;font-size:9px;font-weight:400}
+
+#screen-area{margin:10px 10px 0;background:#0a0014;border-radius:8px;border:2px solid #3a1060;padding:8px}
+
+#reels-wrap{display:flex;gap:6px;justify-content:center;margin-bottom:6px}
+.reel-window{width:72px;height:72px;border-radius:6px;background:#12002a;border:1.5px solid #5a1a9a;overflow:hidden;position:relative}
+.reel-inner{position:absolute;top:0;left:0;right:0;transition:top 0.08s linear}
+.reel-symbol{height:72px;display:flex;align-items:center;justify-content:center;font-size:34px;line-height:1}
+.reel-window::before,.reel-window::after{content:'';position:absolute;left:0;right:0;height:18px;z-index:2;pointer-events:none}
+.reel-window::before{top:0;background:linear-gradient(#12002a,transparent)}
+.reel-window::after{bottom:0;background:linear-gradient(transparent,#12002a)}
+
+#payline{height:2px;background:#f0b429;margin:0 0 4px;opacity:.6}
+
+#msg-area{text-align:center;min-height:18px;margin-bottom:4px}
+#msg{font-size:11px;font-weight:600;letter-spacing:1px;color:#c8a8ff}
+
+#bet-row{display:flex;align-items:center;justify-content:space-between;margin:8px 10px 0}
+#bet-label{color:#a080c0;font-size:10px;letter-spacing:1px}
+#bet-btns{display:flex;gap:4px}
+.bet-btn{background:#1a0a30;border:1px solid #4a1a7a;border-radius:4px;color:#c8a8ff;font-size:10px;font-family:'Oswald',var(--font-sans);padding:3px 7px;cursor:pointer;transition:background .15s}
+.bet-btn:hover{background:#2a1050}
+.bet-btn.active{background:#4a1a7a;color:#f8e0ff;border-color:#9a4aff}
+
+#spin-row{margin:8px 10px 0;display:flex;gap:6px}
+#spin-btn{flex:1;background:#6a00cc;border:none;border-radius:6px;color:#fff;font-size:16px;font-weight:700;font-family:'Oswald',var(--font-sans);padding:10px;cursor:pointer;letter-spacing:2px;transition:background .15s,transform .1s}
+#spin-btn:hover{background:#8a20ee}
+#spin-btn:active{transform:scale(.97)}
+#spin-btn:disabled{background:#2a1050;color:#6040a0;cursor:not-allowed}
+
+#paytable-toggle{background:#1a0a30;border:1px solid #3a1060;border-radius:6px;color:#a080c0;font-size:9px;font-family:'Oswald',var(--font-sans);padding:10px 8px;cursor:pointer;letter-spacing:1px;white-space:nowrap}
+
+#paytable{margin:8px 10px 0;background:#0d0020;border-radius:6px;border:1px solid #3a1060;padding:8px;display:none}
+#paytable.open{display:block}
+.pt-row{display:flex;justify-content:space-between;align-items:center;padding:2px 0;border-bottom:.5px solid #2a1040}
+.pt-row:last-child{border:none}
+.pt-syms{font-size:16px;letter-spacing:2px}
+.pt-pay{color:#f0b429;font-size:10px;font-weight:600}
+.pt-name{color:#a080c0;font-size:9px;flex:1;margin-left:6px}
+
+#stats-row{display:flex;justify-content:space-between;margin:6px 10px 0;gap:4px}
+.stat-box{flex:1;background:#0d0020;border-radius:4px;border:.5px solid #2a1040;padding:4px 6px;text-align:center}
+.stat-label{color:#6040a0;font-size:8px;letter-spacing:.5px;display:block}
+.stat-val{color:#c8a8ff;font-size:12px;font-weight:600;display:block}
+</style>
+
+
+<div id="app">
+<div id="machine">
+  <div id="header">
+    <div id="header-title">SLOT-O-RAMA</div>
+    <div id="coin-display">
+      <div id="coin-icon">c</div>
+      <span id="coin-count">0</span>
+      <span id="coin-rate">+1/s</span>
+    </div>
+  </div>
+
+  <div id="screen-area">
+    <div id="reels-wrap">
+      <div class="reel-window" id="r0"><div class="reel-inner" id="ri0"></div></div>
+      <div class="reel-window" id="r1"><div class="reel-inner" id="ri1"></div></div>
+      <div class="reel-window" id="r2"><div class="reel-inner" id="ri2"></div></div>
+    </div>
+    <div id="payline"></div>
+    <div id="msg-area"><span id="msg">INSERT COINS</span></div>
+  </div>
+
+  <div id="bet-row">
+    <span id="bet-label">BET:</span>
+    <div id="bet-btns">
+      <button class="bet-btn active" data-bet="5" onclick="setBet(5)">5</button>
+      <button class="bet-btn" data-bet="10" onclick="setBet(10)">10</button>
+      <button class="bet-btn" data-bet="15" onclick="setBet(15)">15</button>
+    </div>
+  </div>
+
+  <div id="spin-row">
+    <button id="spin-btn" onclick="spin()" disabled>SPIN</button>
+    <button id="paytable-toggle" onclick="togglePay()">PAYS</button>
+  </div>
+
+  <div id="paytable">
+    <div class="pt-row"><span class="pt-syms">🤖🤖🤖</span><span class="pt-name">Bender</span><span class="pt-pay">300c</span></div>
+    <div class="pt-row"><span class="pt-syms">👁️👁️👁️</span><span class="pt-name">Space God</span><span class="pt-pay">200c</span></div>
+    <div class="pt-row"><span class="pt-syms">🚀🚀🚀</span><span class="pt-name">Planet Exp.</span><span class="pt-pay">120c</span></div>
+    <div class="pt-row"><span class="pt-syms">🦞🦞🦞</span><span class="pt-name">Zoidberg</span><span class="pt-pay">80c</span></div>
+    <div class="pt-row"><span class="pt-syms">🍺🍺🍺</span><span class="pt-name">Slurm</span><span class="pt-pay">50c</span></div>
+    <div class="pt-row"><span class="pt-syms">⭐⭐⭐</span><span class="pt-name">Star</span><span class="pt-pay">30c</span></div>
+    <div class="pt-row"><span class="pt-syms">any 2 match</span><span class="pt-name">Pair</span><span class="pt-pay">bet×1</span></div>
+  </div>
+
+  <div id="stats-row">
+    <div class="stat-box"><span class="stat-label">SPINS</span><span class="stat-val" id="s-spins">0</span></div>
+    <div class="stat-box"><span class="stat-label">WON</span><span class="stat-val" id="s-won">0</span></div>
+    <div class="stat-box"><span class="stat-label">BEST</span><span class="stat-val" id="s-best">0</span></div>
+    <div class="stat-box"><span class="stat-label">TIME</span><span class="stat-val" id="s-time">0s</span></div>
+  </div>
+</div>
+</div>
+
+<script>
+const SYMS=['🤖','👁️','🚀','🦞','🍺','⭐','🌀','💫'];
+const WEIGHTS=[2,3,5,7,10,12,14,15];
+const PAYOUTS={
+  '🤖🤖🤖':300,'👁️👁️👁️':200,'🚀🚀🚀':120,
+  '🦞🦞🦞':80,'🍺🍺🍺':50,'⭐⭐⭐':30
+};
+const REEL_LEN=20;
+
+let coins=0,bet=5,spinning=false,ptOpen=false;
+let totalSpins=0,totalWon=0,bestWin=0,elapsed=0;
+let reelData=[[],[],[]];
+let finalIdx=[0,0,0];
+
+function weighted(){
+  const tot=WEIGHTS.reduce((a,b)=>a+b,0);
+  let r=Math.random()*tot;
+  for(let i=0;i<WEIGHTS.length;i++){r-=WEIGHTS[i];if(r<=0)return i;}
+  return SYMS.length-1;
+}
+
+function buildReel(){
+  const arr=[];
+  for(let i=0;i<REEL_LEN;i++) arr.push(SYMS[weighted()]);
+  return arr;
+}
+
+function renderReel(id,data,stopIdx,instant){
+  const inner=document.getElementById('ri'+id);
+  const html=data.map(s=>`<div class="reel-symbol">${s}</div>`).join('');
+  inner.innerHTML=html+`<div class="reel-symbol">${data[0]}</div>`;
+  const cellH=72;
+  const targetTop=-(stopIdx*cellH);
+  if(instant){inner.style.transition='none';inner.style.top=targetTop+'px';}
+  else{inner.style.top=targetTop+'px';}
+}
+
+function initReels(){
+  for(let i=0;i<3;i++){
+    reelData[i]=buildReel();
+    finalIdx[i]=0;
+    renderReel(i,reelData[i],0,true);
+  }
+}
+
+function setMsg(txt,color){
+  const el=document.getElementById('msg');
+  el.textContent=txt;
+  el.style.color=color||'#c8a8ff';
+}
+
+function updateCoins(){
+  document.getElementById('coin-count').textContent=Math.floor(coins);
+  const btn=document.getElementById('spin-btn');
+  btn.disabled=spinning||coins<bet;
+}
+
+function setBet(b){
+  bet=b;
+  document.querySelectorAll('.bet-btn').forEach(el=>{
+    el.classList.toggle('active',parseInt(el.dataset.bet)===b);
+  });
+  updateCoins();
+}
+
+function togglePay(){
+  ptOpen=!ptOpen;
+  document.getElementById('paytable').classList.toggle('open',ptOpen);
+}
+
+function spinReel(reelId,duration,targetSym){
+  return new Promise(resolve=>{
+    const data=reelData[reelId];
+    const inner=document.getElementById('ri'+reelId);
+    const cellH=72;
+    const totalCells=data.length;
+    let startTime=null;
+    let startPos=finalIdx[reelId];
+
+    const extraSpins=Math.floor(duration/80)+totalCells;
+    const targetPos=(startPos+extraSpins)%totalCells;
+    let landIdx=data.indexOf(targetSym,0);
+    if(landIdx<0) landIdx=0;
+    const overshoot=((landIdx-startPos)+totalCells*10)%totalCells;
+    const totalSteps=Math.floor(extraSpins/totalCells)*totalCells+overshoot;
+
+    inner.style.transition='none';
+
+    let current=startPos;
+    const step=()=>{
+      current=(current+1)%totalCells;
+      inner.style.transition='top 0.08s linear';
+      inner.style.top=-(current*cellH)+'px';
+      if(current===landIdx){
+        finalIdx[reelId]=landIdx;
+        setTimeout(resolve,100);
+      } else {
+        const delay=spinning?Math.max(40,80-totalSteps*0.5):60;
+        setTimeout(step,60);
+      }
+    };
+
+    let steps=0;
+    const maxSteps=totalSteps;
+    const fastStep=()=>{
+      steps++;
+      current=(current+1)%totalCells;
+      inner.style.transition='top 0.07s linear';
+      inner.style.top=-(current*cellH)+'px';
+      if(steps>=maxSteps&&current===landIdx){
+        finalIdx[reelId]=landIdx;
+        setTimeout(resolve,120);
+      } else if(steps>=maxSteps-5){
+        setTimeout(fastStep,90);
+      } else {
+        setTimeout(fastStep,55);
+      }
+    };
+    fastStep();
+  });
+}
+
+async function spin(){
+  if(spinning||coins<bet) return;
+  spinning=true;
+  coins-=bet;
+  updateCoins();
+  setMsg('SPINNING...','#c8a8ff');
+  document.getElementById('spin-btn').disabled=true;
+
+  const results=[SYMS[weighted()],SYMS[weighted()],SYMS[weighted()]];
+
+  const p0=spinReel(0,800,results[0]);
+  await new Promise(r=>setTimeout(r,200));
+  const p1=spinReel(1,900,results[1]);
+  await new Promise(r=>setTimeout(r,200));
+  const p2=spinReel(2,1000,results[2]);
+  await Promise.all([p0,p1,p2]);
+
+  const key=results.join('');
+  let win=0;
+  if(PAYOUTS[key]) win=PAYOUTS[key];
+  else if(results[0]===results[1]||results[1]===results[2]||results[0]===results[2]) win=bet;
+
+  totalSpins++;
+  if(win>0){
+    coins+=win;
+    totalWon+=win;
+    if(win>bestWin) bestWin=win;
+    if(win>=200) setMsg('JACKPOT! +'+win+'c','#f0b429');
+    else if(win>=80) setMsg('BIG WIN! +'+win+'c','#f0b429');
+    else if(win>=30) setMsg('WINNER! +'+win+'c','#88ff88');
+    else setMsg('WIN +'+win+'c','#a8d8a8');
+  } else {
+    const taunts=['TRY AGAIN','NO LUCK','KEEP GOING','BITE MY SHINY...','SO CLOSE'];
+    setMsg(taunts[Math.floor(Math.random()*taunts.length)],'#7050a0');
+  }
+
+  document.getElementById('s-spins').textContent=totalSpins;
+  document.getElementById('s-won').textContent=totalWon;
+  document.getElementById('s-best').textContent=bestWin;
+  updateCoins();
+  spinning=false;
+  document.getElementById('spin-btn').disabled=coins<bet;
+}
+
+initReels();
+setMsg('EARN COINS TO PLAY','#a080c0');
+
+setInterval(()=>{
+  coins=Math.min(coins+1,9999);
+  elapsed++;
+  const m=Math.floor(elapsed/60);
+  const s=elapsed%60;
+  document.getElementById('s-time').textContent=m>0?m+'m'+s+'s':s+'s';
+  updateCoins();
+  if(!spinning&&coins>=bet&&document.getElementById('msg').textContent==='EARN COINS TO PLAY'){
+    setMsg('READY TO PLAY!','#88ff88');
+  }
+},1000);
+</script>

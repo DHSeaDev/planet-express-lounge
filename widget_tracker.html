@@ -1,0 +1,449 @@
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+#app{width:100%;max-width:340px;font-family:'Oswald',var(--font-sans);background:#060d1a;border-radius:12px;border:2px solid #0a3060;overflow:hidden}
+
+#header{background:#081828;padding:8px 12px;border-bottom:1px solid #0a3060;display:flex;align-items:center;justify-content:space-between}
+#logo{display:flex;align-items:center;gap:7px}
+#logo-mark{width:28px;height:18px;position:relative}
+#title-text{font-size:12px;font-weight:700;letter-spacing:1.5px;color:#e8a020;line-height:1.1}
+#title-sub{font-size:8px;color:#6090c0;letter-spacing:1px;font-weight:400}
+#eta-badge{background:#0a2040;border:1px solid #1a4080;border-radius:6px;padding:4px 8px;text-align:right}
+#eta-label{font-size:7px;color:#4080b0;letter-spacing:1px;display:block}
+#eta-val{font-size:13px;font-weight:700;color:#e8a020}
+
+#starmap{position:relative;width:100%;height:180px;background:#02080f;overflow:hidden;border-bottom:1px solid #0a2040}
+#stars-layer{position:absolute;inset:0}
+#route-svg{position:absolute;inset:0;width:100%;height:100%}
+#ship-el{position:absolute;transform:translate(-50%,-50%);transition:left 0.8s linear,top 0.8s linear;z-index:10;font-size:0;line-height:0}
+
+#scan-line{position:absolute;left:0;right:0;height:1px;background:rgba(0,200,100,0.15);z-index:5;animation:scan 4s linear infinite}
+@keyframes scan{0%{top:0}100%{top:100%}}
+
+#origin-dot,#dest-dot{position:absolute;width:8px;height:8px;border-radius:50%;z-index:8;transform:translate(-50%,-50%)}
+#origin-dot{background:#4080ff;box-shadow:0 0 6px #4080ff}
+#dest-dot{background:#ff4040;animation:pulse-dest 1.5s ease-in-out infinite}
+@keyframes pulse-dest{0%,100%{box-shadow:0 0 4px #ff4040}50%{box-shadow:0 0 12px #ff4040,0 0 20px rgba(255,60,60,.3)}}
+
+.planet-dot{position:absolute;border-radius:50%;transform:translate(-50%,-50%);z-index:6}
+.p-label{position:absolute;font-size:8px;font-family:'Oswald',var(--font-sans);color:#3a6090;z-index:7;white-space:nowrap;transform:translateX(-50%)}
+
+#status-bar{background:#04101e;padding:6px 12px;border-bottom:1px solid #0a2040;display:flex;align-items:center;gap:8px}
+#status-dot{width:7px;height:7px;border-radius:50%;background:#00cc66;animation:blink 1.2s ease-in-out infinite;flex-shrink:0}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+#status-text{font-size:10px;color:#70b0e0;flex:1;font-weight:400;letter-spacing:.5px}
+#progress-pct{font-size:11px;font-weight:700;color:#e8a020}
+
+#progress-track{height:4px;background:#04101e;margin:0;position:relative}
+#progress-fill{height:100%;background:#1a6030;transition:width 1s linear;position:relative}
+#progress-fill::after{content:'';position:absolute;right:0;top:-2px;width:8px;height:8px;border-radius:50%;background:#00cc66;box-shadow:0 0 6px #00cc66}
+
+#pkg-area{padding:8px 12px}
+#pkg-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+#pkg-id{font-size:9px;color:#3a6090;letter-spacing:1px}
+#pkg-title{font-size:12px;font-weight:700;color:#c0d8f0;letter-spacing:.5px}
+
+#route-steps{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.step{display:flex;align-items:flex-start;gap:8px}
+.step-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:2px;border:1.5px solid}
+.step-dot.done{background:#1a6030;border-color:#00cc66}
+.step-dot.active{background:#0a2a5a;border-color:#4080ff;animation:blink 1s infinite}
+.step-dot.todo{background:#04101e;border-color:#1a3050}
+.step-info{flex:1}
+.step-name{font-size:10px;color:#a0c0e0;font-weight:500;letter-spacing:.3px}
+.step-detail{font-size:8px;color:#3a6090;letter-spacing:.5px;margin-top:1px}
+.step-line{width:1.5px;background:#1a3050;margin-left:4.25px;height:8px}
+
+#crew-row{display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:.5px solid #0a2040}
+#crew-label{font-size:8px;color:#3a6090;letter-spacing:1px}
+#crew-names{font-size:9px;color:#6090c0;letter-spacing:.5px}
+#new-delivery-btn{background:#0a2040;border:1px solid #1a4060;border-radius:4px;color:#4080b0;font-size:8px;font-family:'Oswald',var(--font-sans);padding:3px 8px;cursor:pointer;letter-spacing:1px;transition:background .15s}
+#new-delivery-btn:hover{background:#1a3050;color:#70b0e0}
+
+#captain-msg{margin:0 12px 8px;background:#020c18;border:1px solid #0a2a0a;border-radius:6px;padding:6px 10px;display:flex;gap:8px;align-items:flex-start}
+#captain-face{font-size:18px;flex-shrink:0;line-height:1}
+#captain-quote{font-size:9px;color:#609040;font-style:italic;line-height:1.5;letter-spacing:.3px}
+</style>
+
+
+<div id="app">
+  <div id="header">
+    <div id="logo">
+      <svg id="logo-mark" width="36" height="22" viewBox="0 0 36 22">
+        <ellipse cx="18" cy="16" rx="16" ry="5" fill="#1a4060" stroke="#2a6090" stroke-width="1"/>
+        <path d="M6 16 Q18 2 30 16" fill="#1a6030" stroke="#2a9050" stroke-width="1"/>
+        <ellipse cx="18" cy="13" rx="5" ry="3" fill="#60c0f0" opacity=".7"/>
+        <circle cx="8" cy="16" r="2" fill="#ff6020"/>
+        <circle cx="28" cy="16" r="2" fill="#ff6020"/>
+      </svg>
+      <div>
+        <div id="title-text">PLANET EXPRESS</div>
+        <div id="title-sub">DELIVERY TRACKING</div>
+      </div>
+    </div>
+    <div id="eta-badge">
+      <span id="eta-label">ETA</span>
+      <span id="eta-val">--</span>
+    </div>
+  </div>
+
+  <div id="starmap">
+    <canvas id="stars-layer" width="340" height="180"></canvas>
+    <svg id="route-svg" viewBox="0 0 340 180" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr-r" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M1 1L7 4L1 7" fill="none" stroke="#1a5030" stroke-width="1.2" stroke-linecap="round"/>
+        </marker>
+      </defs>
+      <path id="route-path" fill="none" stroke="#1a4030" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arr-r)"/>
+      <path id="route-done" fill="none" stroke="#2a8050" stroke-width="1.5"/>
+    </svg>
+    <div id="origin-dot"></div>
+    <div id="dest-dot"></div>
+    <div id="ship-el">
+      <svg width="26" height="20" viewBox="0 0 36 26">
+        <ellipse cx="18" cy="20" rx="14" ry="4" fill="#1a5080" stroke="#2a80c0" stroke-width="1"/>
+        <path d="M7 20 Q18 6 29 20" fill="#2a9060" stroke="#40c080" stroke-width="1"/>
+        <ellipse cx="18" cy="17" rx="4" ry="2.5" fill="#80d0f8" opacity=".85"/>
+        <ellipse cx="7" cy="20" rx="2" ry="1.5" fill="#ff8030" opacity=".9" id="exhaust-l"/>
+        <ellipse cx="29" cy="20" rx="2" ry="1.5" fill="#ff8030" opacity=".9" id="exhaust-r"/>
+      </svg>
+    </div>
+  </div>
+
+  <div id="progress-track"><div id="progress-fill" style="width:0%"></div></div>
+
+  <div id="status-bar">
+    <div id="status-dot"></div>
+    <div id="status-text">Initializing navigation...</div>
+    <div id="progress-pct">0%</div>
+  </div>
+
+  <div id="pkg-area">
+    <div id="pkg-header">
+      <span id="pkg-id">PKG-000000</span>
+      <span id="pkg-title">Loading manifest...</span>
+    </div>
+    <div id="route-steps"></div>
+    <div id="crew-row">
+      <div>
+        <div id="crew-label">CREW ON BOARD</div>
+        <div id="crew-names">—</div>
+      </div>
+      <button id="new-delivery-btn" onclick="newDelivery()">NEW DELIVERY</button>
+    </div>
+  </div>
+
+  <div id="captain-msg">
+    <div id="captain-face">👩‍✈️</div>
+    <div id="captain-quote">Awaiting orders from the Professor...</div>
+  </div>
+</div>
+
+<script>
+const DELIVERIES=[
+  {pkg:"Doomsday device (inert)",from:"New New York",to:"Omicron Persei 8",danger:"LEVEL 5",crew:["Leela","Fry","Bender"]},
+  {pkg:"Jar of Neptunian slug slime",from:"New New York",to:"Neptune",danger:"LEVEL 1",crew:["Fry","Bender"]},
+  {pkg:"Dark matter energy cores",from:"Vergon 6",to:"New New York",danger:"LEVEL 3",crew:["Leela","Fry","Bender","Zoidberg"]},
+  {pkg:"Love potion #8.5",from:"New New York",to:"Amazonia",danger:"LEVEL 2",crew:["Leela","Fry"]},
+  {pkg:"Highly unstable anti-matter",from:"New New York",to:"Traal",danger:"LEVEL 9",crew:["Leela","Fry","Bender"]},
+  {pkg:"Box of nothing",from:"Eternium",to:"New New York",danger:"LEVEL 0",crew:["Fry","Amy","Zoidberg"]},
+  {pkg:"Soylent Cola (bulk)",from:"New New York",to:"Wormulon",danger:"LEVEL 2",crew:["Leela","Bender","Hermes"]},
+  {pkg:"One (1) anchovy",from:"New New York",to:"Prehistoric Earth",danger:"LEVEL 4",crew:["Fry","Bender"]},
+  {pkg:"Counterfeit jeans",from:"New New York",to:"Nude Beach Planet",danger:"LEVEL 1",crew:["Leela","Fry","Bender","Amy"]},
+  {pkg:"The Smelloscope",from:"New New York",to:"Thuban 9",danger:"LEVEL 0",crew:["Leela","Fry","Professor"]},
+];
+
+const WAYPOINTS=[
+  {name:"Moon",color:"#888"},
+  {name:"Mars",color:"#c0602a"},
+  {name:"Asteroid Belt",color:"#8a7a50"},
+  {name:"Jupiter",color:"#c09060"},
+  {name:"Wormhole Alpha",color:"#9a50d0"},
+  {name:"Nibblonian Space",color:"#50a060"},
+  {name:"DOOP Station",color:"#4080c0"},
+];
+
+const STATUSES=[
+  "Fry spilled coffee on the nav console. Rerouting.",
+  "Bender took a detour to a poker tournament.",
+  "Leela executed a textbook slingshot maneuver.",
+  "Zoidberg is in the engine room. Pray.",
+  "Cruising through dark matter clouds.",
+  "Kif's sigh detected — minor course correction.",
+  "Flying at 99.9% the speed of plot.",
+  "Bender briefly stole the cargo. It's back.",
+  "Passing through a time anomaly. Probably fine.",
+  "Leela parallel-parked through a nebula.",
+  "Fry accidentally hit ludicrous speed.",
+  "Zapp Brannigan's ship spotted. Evading.",
+  "All systems nominal. Fry suspicious.",
+];
+
+const LEELA_QUOTES=[
+  "Stay on course and try not to break anything, Fry.",
+  "I've piloted through worse. Much, much worse.",
+  "Bender, put the cargo back. NOW.",
+  "According to my wrist-ilo, we're only slightly doomed.",
+  "I didn't get my captain's license for nothing.",
+  "If we survive this, I'm billing the Professor double.",
+  "The wormhole is perfectly safe. Probably.",
+  "Fry, stop touching that. No — the other thing.",
+];
+
+const FRY_QUOTES=[
+  "Not sure if we're on time or just lucky. Both?",
+  "Wait, space is really, really big. Whoa.",
+  "I'm the delivery boy. I deliver. That's my whole deal.",
+  "Bender says we'll be fine. Bender also said that last time.",
+  "Is that a space whale or did I eat something weird?",
+];
+
+const BENDER_QUOTES=[
+  "We'll get there when we get there, meatbags.",
+  "I'm 40% delivery, 60% magnificent.",
+  "I briefly considered stealing the package. Still considering it.",
+  "Bite my shiny metal trajectory.",
+];
+
+const PROF_QUOTES=[
+  "Good news, everyone! You're delivering something that might explode!",
+  "The chances of survival are... actually, I haven't calculated them.",
+  "I'm already asleep. Leave a message.",
+  "This mission is entirely safe. I said 'entirely.' I lied.",
+];
+
+let delivery=null, progress=0, waypoints=[], currentWaypoint=0;
+let shipX=0,shipY=0,originX=0,originY=0,destX=0,destY=0;
+let statusTimer=null,progressTimer=null,quoteTimer=null;
+let startTime=Date.now(),etaSeconds=0;
+
+function rand(a,b){return a+Math.random()*(b-a);}
+function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
+
+function drawStars(){
+  const c=document.getElementById('stars-layer');
+  const ctx=c.getContext('2d');
+  ctx.clearRect(0,0,340,180);
+  for(let i=0;i<180;i++){
+    const x=rand(0,340),y=rand(0,180),r=rand(.2,1.4);
+    const bright=Math.random();
+    ctx.beginPath();
+    ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.fillStyle=bright>.92?'#c8b8ff':bright>.85?'#fffce0':'#ffffff';
+    ctx.globalAlpha=rand(.2,.9);
+    ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  for(let i=0;i<3;i++){
+    const x=rand(20,320),y=rand(10,170);
+    ctx.beginPath();
+    ctx.arc(x,y,rand(12,28),0,Math.PI*2);
+    ctx.fillStyle=`rgba(${pick([40,60,30])},${pick([20,40,60])},${pick([60,80,100])},0.06)`;
+    ctx.fill();
+  }
+}
+
+function placePlanets(){
+  document.querySelectorAll('.planet-dot,.p-label').forEach(e=>e.remove());
+  const map=document.getElementById('starmap');
+  const used=[];
+  const count=3+Math.floor(Math.random()*3);
+  for(let i=0;i<count;i++){
+    let attempts=0,x,y,ok=false;
+    while(!ok&&attempts<20){
+      x=rand(20,310);y=rand(14,155);
+      ok=used.every(p=>Math.hypot(p.x-x,p.y-y)>35)
+        &&Math.hypot(originX-x,originY-y)>30
+        &&Math.hypot(destX-x,destY-y)>30;
+      attempts++;
+    }
+    used.push({x,y});
+    const wp=WAYPOINTS[i%WAYPOINTS.length];
+    const size=rand(5,13);
+    const d=document.createElement('div');
+    d.className='planet-dot';
+    d.style.cssText=`left:${x}px;top:${y}px;width:${size}px;height:${size}px;background:${wp.color};opacity:.7`;
+    map.appendChild(d);
+    if(size>7){
+      const l=document.createElement('div');
+      l.className='p-label';
+      l.style.cssText=`left:${x}px;top:${y+size/2+3}px`;
+      l.textContent=wp.name;
+      map.appendChild(l);
+    }
+  }
+}
+
+function setRoute(){
+  const margin=24;
+  originX=rand(margin,90); originY=rand(margin,180-margin);
+  destX=rand(250,340-margin); destY=rand(margin,180-margin);
+
+  document.getElementById('origin-dot').style.cssText=`left:${originX}px;top:${originY}px`;
+  document.getElementById('dest-dot').style.cssText=`left:${destX}px;top:${destY}px`;
+
+  const cx=(originX+destX)/2+rand(-40,40);
+  const cy=(originY+destY)/2+rand(-50,50);
+
+  document.getElementById('route-path').setAttribute('d',
+    `M${originX},${originY} Q${cx},${cy} ${destX},${destY}`);
+  document.getElementById('route-done').setAttribute('d','');
+
+  shipX=originX; shipY=originY;
+  const s=document.getElementById('ship-el');
+  s.style.left=shipX+'px'; s.style.top=shipY+'px';
+}
+
+function getPointOnCurve(t){
+  const path=document.getElementById('route-path');
+  const len=path.getTotalLength();
+  const pt=path.getPointAtLength(t*len);
+  return{x:pt.x,y:pt.y};
+}
+
+function buildSteps(){
+  const d=delivery;
+  const mid1=pick(WAYPOINTS);
+  let mid2;do{mid2=pick(WAYPOINTS);}while(mid2===mid1);
+  waypoints=[
+    {name:d.from,detail:'Departure — package loaded',done:true,active:false},
+    {name:mid1.name,detail:'Waypoint — refueling stop',done:false,active:true},
+    {name:mid2.name,detail:'Waypoint — customs inspection',done:false,active:false},
+    {name:d.to,detail:'Final destination',done:false,active:false},
+  ];
+  renderSteps();
+}
+
+function renderSteps(){
+  const wrap=document.getElementById('route-steps');
+  wrap.innerHTML='';
+  waypoints.forEach((w,i)=>{
+    const div=document.createElement('div');
+    div.className='step';
+    const state=w.done?'done':w.active?'active':'todo';
+    let html=`<div style="display:flex;flex-direction:column;align-items:center">
+      <div class="step-dot ${state}"></div>`;
+    if(i<waypoints.length-1) html+=`<div class="step-line"></div>`;
+    html+=`</div><div class="step-info">
+      <div class="step-name">${w.name}</div>
+      <div class="step-detail">${w.detail}</div>
+    </div>`;
+    div.innerHTML=html;
+    wrap.appendChild(div);
+  });
+}
+
+function updateWaypoints(pct){
+  const thresholds=[0,30,65,100];
+  waypoints.forEach((w,i)=>{
+    w.done=pct>=thresholds[i];
+    w.active=pct>=thresholds[i]&&(i===waypoints.length-1?pct<100:pct<thresholds[i+1]);
+  });
+  renderSteps();
+}
+
+function formatEta(sec){
+  if(sec<=0) return 'NOW';
+  if(sec<60) return sec+'s';
+  const m=Math.floor(sec/60),s=sec%60;
+  return m+'m'+(s>0?s+'s':'');
+}
+
+function newDelivery(){
+  clearInterval(progressTimer);
+  clearTimeout(quoteTimer);
+  clearTimeout(statusTimer);
+
+  delivery=pick(DELIVERIES);
+  progress=0;
+  currentWaypoint=0;
+  const totalSec=90+Math.floor(Math.random()*120);
+  etaSeconds=totalSec;
+  startTime=Date.now();
+
+  document.getElementById('pkg-id').textContent='PKG-'+Math.floor(100000+Math.random()*900000);
+  document.getElementById('pkg-title').textContent=delivery.pkg;
+  document.getElementById('crew-names').textContent=delivery.crew.join(', ');
+  document.getElementById('eta-val').textContent=formatEta(etaSeconds);
+  document.getElementById('progress-fill').style.width='0%';
+  document.getElementById('progress-pct').textContent='0%';
+
+  drawStars();
+  setRoute();
+  placePlanets();
+  buildSteps();
+  cycleQuote();
+
+  const tickMs=1000;
+  const totalTicks=totalSec;
+  let tick=0;
+
+  progressTimer=setInterval(()=>{
+    tick++;
+    progress=Math.min(100,Math.round((tick/totalTicks)*100));
+    etaSeconds=Math.max(0,totalSec-tick);
+
+    document.getElementById('progress-fill').style.width=progress+'%';
+    document.getElementById('progress-pct').textContent=progress+'%';
+    document.getElementById('eta-val').textContent=formatEta(etaSeconds);
+
+    const pt=getPointOnCurve(progress/100);
+    const s=document.getElementById('ship-el');
+    s.style.left=pt.x+'px';
+    s.style.top=pt.y+'px';
+
+    const donePath=document.getElementById('route-done');
+    const routePath=document.getElementById('route-path');
+    const len=routePath.getTotalLength();
+    const seg=routePath.getPointAtLength((progress/100)*len);
+    donePath.setAttribute('d',
+      document.getElementById('route-path').getAttribute('d').replace(/Q.*/,'')+
+      `...`);
+    const doneLen=(progress/100)*len;
+    document.getElementById('route-path').style.strokeDashoffset=0;
+    donePath.setAttribute('stroke-dasharray',doneLen+' '+len);
+    donePath.setAttribute('stroke-dashoffset',0);
+    donePath.setAttribute('d',document.getElementById('route-path').getAttribute('d'));
+    donePath.style.strokeDasharray=doneLen+','+len;
+
+    updateWaypoints(progress);
+
+    if(progress>=100){
+      clearInterval(progressTimer);
+      document.getElementById('status-dot').style.background='#f0b429';
+      setStatus('Package delivered! ...mostly intact. Restarting in 8s.');
+      setCaptain('👩‍✈️',"Delivery complete. I'm not even going to ask what Bender did.");
+      setTimeout(newDelivery,8000);
+    }
+  },tickMs);
+
+  statusTimer=setInterval(()=>{
+    if(progress<100) setStatus(pick(STATUSES));
+  },6000+Math.floor(Math.random()*4000));
+
+  setStatus('Departing '+delivery.from+'. Danger level: '+delivery.danger);
+}
+
+function setStatus(txt){
+  document.getElementById('status-text').textContent=txt;
+}
+
+function setCaptain(face,quote){
+  document.getElementById('captain-face').textContent=face;
+  document.getElementById('captain-quote').textContent=quote;
+}
+
+function cycleQuote(){
+  const roll=Math.random();
+  if(roll<.5) setCaptain('👩‍✈️',pick(LEELA_QUOTES));
+  else if(roll<.7) setCaptain('😐',pick(FRY_QUOTES));
+  else if(roll<.85) setCaptain('🤖',pick(BENDER_QUOTES));
+  else setCaptain('👴',pick(PROF_QUOTES));
+  quoteTimer=setTimeout(cycleQuote,7000+Math.random()*6000);
+}
+
+drawStars();
+newDelivery();
+</script>

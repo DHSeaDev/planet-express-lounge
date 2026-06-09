@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planet Express Lounge — Welcome</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0D1117;--bg2:#161B22;--bg3:#21262D;--border:#30363D;--fg:#E6EDF3;--fg2:#8B949E;--fg3:#484F58;--gold:#FFD700;--green:#238636;--system:#E06C75;--radius:10px}
+html{background:var(--bg);color:var(--fg);font-family:'Exo 2',sans-serif;font-size:15px}
+body{min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:0 0 80px;max-width:760px;margin:0 auto}
+.starfield{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.hero{position:relative;z-index:1;text-align:center;padding:52px 24px 32px;width:100%;background:linear-gradient(180deg,#0a0f1a 0%,transparent 100%)}
+.ship{font-size:60px;animation:float 3s ease-in-out infinite;display:block;margin-bottom:12px}
+@keyframes float{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-10px) rotate(4deg)}}
+.hero-title{font-family:'Orbitron',monospace;font-size:clamp(22px,5vw,36px);font-weight:900;color:var(--gold);letter-spacing:3px;text-shadow:0 0 24px rgba(255,215,0,.5);margin-bottom:6px}
+.hero-sub{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--fg2);letter-spacing:3px;margin-bottom:14px}
+.version-badge{display:inline-block;background:rgba(255,215,0,.1);border:1px solid var(--gold);border-radius:20px;padding:4px 14px;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--gold);letter-spacing:2px;margin-bottom:20px}
+.hero-tagline{font-size:15px;color:var(--fg2);line-height:1.6;max-width:520px;margin:0 auto 28px}
+.cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.cta-btn{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:1.5px;padding:12px 22px;border-radius:var(--radius);cursor:pointer;border:none;transition:transform .15s,box-shadow .2s;font-weight:700}
+.cta-btn:active{transform:scale(.96)}
+.cta-primary{background:var(--gold);color:#000}
+.cta-primary:hover{box-shadow:0 0 18px rgba(255,215,0,.5)}
+.cta-secondary{background:transparent;border:1px solid var(--border);color:var(--fg2);text-decoration:none;display:inline-flex;align-items:center}
+.cta-secondary:hover{border-color:var(--gold);color:var(--gold)}
+.section{position:relative;z-index:1;width:100%;padding:0 20px;margin-top:40px}
+.section-title{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;color:var(--fg3);text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.steps{display:flex;flex-direction:column;gap:14px}
+.step{display:flex;gap:14px;align-items:flex-start;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+.step-num{font-family:'Orbitron',monospace;font-size:18px;font-weight:900;color:var(--gold);flex-shrink:0;min-width:28px}
+.step-body{flex:1}
+.step-label{font-weight:600;font-size:14px;margin-bottom:4px}
+.step-desc{font-size:12px;color:var(--fg2);line-height:1.6}
+.providers{display:flex;gap:12px;flex-wrap:wrap}
+.provider-card{flex:1;min-width:160px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;position:relative}
+.provider-card.recommended{border-color:var(--green)}
+.provider-rec{position:absolute;top:-9px;left:14px;background:var(--green);color:#fff;font-size:8px;letter-spacing:1px;padding:2px 8px;border-radius:4px;font-family:'Share Tech Mono',monospace}
+.provider-name{font-family:'Orbitron',monospace;font-size:11px;color:var(--fg);margin-bottom:4px}
+.provider-desc{font-size:11px;color:var(--fg2);line-height:1.5;margin-bottom:8px}
+.provider-link{font-size:10px;color:var(--gold);font-family:'Share Tech Mono',monospace;text-decoration:none}
+.provider-link:hover{text-decoration:underline}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.feature{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.feature-icon{font-size:24px;margin-bottom:8px}
+.feature-name{font-weight:600;font-size:13px;margin-bottom:4px}
+.feature-desc{font-size:11px;color:var(--fg2);line-height:1.5}
+.cast-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.cast-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 10px;text-align:center}
+.cast-icon{font-size:20px;margin-bottom:4px}
+.cast-name{font-family:'Share Tech Mono',monospace;font-size:9px;font-weight:600;letter-spacing:.5px}
+.cast-role{font-size:9px;color:var(--fg3);margin-top:2px}
+.legal-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;font-size:12px;color:var(--fg2);line-height:1.8;position:relative}
+.legal-box p{margin-bottom:10px}
+.legal-box p:last-child{margin-bottom:0}
+.legal-box strong{color:var(--fg)}
+.dev-tag{position:absolute;bottom:10px;right:14px;font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--fg3);letter-spacing:1px;opacity:.55}
+footer{position:relative;z-index:1;width:100%;text-align:center;padding:24px 20px 0;font-size:11px;color:var(--fg3);border-top:1px solid var(--border);margin-top:48px}
+</style>
+</head>
+<body>
+<canvas id="stars" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
+
+<div class="hero">
+  <span class="ship">🚀</span>
+  <h1 class="hero-title">PLANET EXPRESS LOUNGE</h1>
+  <div class="hero-sub">FUTURAMA AI CREW ENGINE</div>
+  <div class="version-badge">VERSION 4.0 — NO SERVER REQUIRED</div>
+  <p class="hero-tagline">Chat with all 18 Futurama characters, run hands-free sitcom episodes, and explore the Professor's lab. Powered by your own API key — no Python, no server, no installation beyond the extension.</p>
+  <div class="cta-row">
+    <button class="cta-btn cta-primary" onclick="window.close()">📺 OPEN THE SIDEBAR</button>
+    <a class="cta-btn cta-secondary" href="https://console.groq.com" target="_blank">🔑 GET FREE GROQ KEY</a>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">⚡ Setup — two steps</div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <div class="step-label">Get a free API key</div>
+        <div class="step-desc">Groq is recommended — free, fast, no credit card needed. OpenRouter and Google Gemini are also supported.</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px">
+          <a class="provider-link" href="https://console.groq.com" target="_blank">→ console.groq.com (recommended)</a>
+          <a class="provider-link" href="https://openrouter.ai/keys" target="_blank">→ openrouter.ai/keys</a>
+          <a class="provider-link" href="https://aistudio.google.com/app/apikey" target="_blank">→ aistudio.google.com</a>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <div class="step-label">Paste your key in Settings</div>
+        <div class="step-desc">Open the sidebar → <strong>⚙️ Settings</strong> → select provider, paste your key, press <strong>💾 Save &amp; Connect</strong>. The status dot turns green. Done.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">🔌 API providers</div>
+  <div class="providers">
+    <div class="provider-card recommended">
+      <div class="provider-rec">★ RECOMMENDED</div>
+      <div class="provider-name">GROQ</div>
+      <div class="provider-desc">Free tier. Llama 3.3 70B at ~500 tokens/sec — fast enough for natural conversation flow and autopilot episodes.</div>
+      <a class="provider-link" href="https://console.groq.com" target="_blank">console.groq.com →</a>
+    </div>
+    <div class="provider-card">
+      <div class="provider-name">OPENROUTER</div>
+      <div class="provider-desc">Access GPT-4o, Claude 3.5, Gemini, Mistral, and dozens more through one key.</div>
+      <a class="provider-link" href="https://openrouter.ai" target="_blank">openrouter.ai →</a>
+    </div>
+    <div class="provider-card">
+      <div class="provider-name">GEMINI</div>
+      <div class="provider-desc">Google's free Flash tier with 1M token context window. Strong alternative to Groq.</div>
+      <a class="provider-link" href="https://aistudio.google.com" target="_blank">aistudio.google.com →</a>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">📡 Features</div>
+  <div class="features">
+    <div class="feature"><div class="feature-icon">💬</div><div class="feature-name">Ensemble Chat</div><div class="feature-desc">Send a message — the best-matched crew member responds, with 1-2 others chiming in based on topic.</div></div>
+    <div class="feature"><div class="feature-icon">🤖</div><div class="feature-name">Autopilot</div><div class="feature-desc">The crew picks its own topic and debates through a full sitcom episode arc — cold open to button joke — hands free.</div></div>
+    <div class="feature"><div class="feature-icon">🧪</div><div class="feature-name">Professor's Lab</div><div class="feature-desc">Generate an LLM-powered invention, send it to the crew, and play five interactive Futurama mini-apps.</div></div>
+    <div class="feature"><div class="feature-icon">🎙️</div><div class="feature-name">Character TTS</div><div class="feature-desc">18 distinct pitch + rate profiles via Chrome's native TTS. Individual mute toggles per character.</div></div>
+    <div class="feature"><div class="feature-icon">📌</div><div class="feature-name">Cold Storage</div><div class="feature-desc">Pin any exchange. Export any pin as a printable PDF. Stored entirely in your local browser IndexedDB.</div></div>
+    <div class="feature"><div class="feature-icon">💀</div><div class="feature-name">Chaos Mode</div><div class="feature-desc">TV-appropriate profanity, maximum fourth-wall breakage, and inter-character insults. Use responsibly.</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">👥 Full cast — 18 speaking characters</div>
+  <div class="cast-grid">
+    <div class="cast-card"><div class="cast-icon">🍕</div><div class="cast-name" style="color:#FF6B35">FRY</div><div class="cast-role">Delivery Boy</div></div>
+    <div class="cast-card"><div class="cast-icon">👁️</div><div class="cast-name" style="color:#C678DD">LEELA</div><div class="cast-role">Captain</div></div>
+    <div class="cast-card"><div class="cast-icon">🤖</div><div class="cast-name" style="color:#ABB2BF">BENDER</div><div class="cast-role">Bending Unit</div></div>
+    <div class="cast-card"><div class="cast-icon">🧪</div><div class="cast-name" style="color:#E5C07B">PROFESSOR</div><div class="cast-role">Mad Scientist</div></div>
+    <div class="cast-card"><div class="cast-icon">💅</div><div class="cast-name" style="color:#FF79C6">AMY</div><div class="cast-role">Intern</div></div>
+    <div class="cast-card"><div class="cast-icon">🦞</div><div class="cast-name" style="color:#56B6C2">ZOIDBERG</div><div class="cast-role">Ship Doctor</div></div>
+    <div class="cast-card"><div class="cast-icon">⭐</div><div class="cast-name" style="color:#4A9ECD">ZAPP</div><div class="cast-role">DOOP Captain</div></div>
+    <div class="cast-card"><div class="cast-icon">📋</div><div class="cast-name" style="color:#7BC67E">HERMES</div><div class="cast-role">Bureaucrat</div></div>
+    <div class="cast-card"><div class="cast-icon">😔</div><div class="cast-name" style="color:#C5A3E8">KIF</div><div class="cast-role">Lieutenant</div></div>
+    <div class="cast-card"><div class="cast-icon">👽</div><div class="cast-name" style="color:#7DF9FF">MORBO</div><div class="cast-role">News Anchor</div></div>
+    <div class="cast-card"><div class="cast-icon">📰</div><div class="cast-name" style="color:#FFB347">LINDA</div><div class="cast-role">Co-Anchor</div></div>
+    <div class="cast-card"><div class="cast-icon">💃</div><div class="cast-name" style="color:#FF69B4">LABARBARA</div><div class="cast-role">Hermes' Wife</div></div>
+    <div class="cast-card"><div class="cast-icon">🎩</div><div class="cast-name" style="color:#C0A060">NIXON</div><div class="cast-role">President</div></div>
+    <div class="cast-card"><div class="cast-icon">🎭</div><div class="cast-name" style="color:#E8605A">CALCULON</div><div class="cast-role">Robot Actor</div></div>
+    <div class="cast-card"><div class="cast-icon">💼</div><div class="cast-name" style="color:#9B59B6">MOM</div><div class="cast-role">MomCorp CEO</div></div>
+    <div class="cast-card"><div class="cast-icon">🎅</div><div class="cast-name" style="color:#CC2200">ROBOT SANTA</div><div class="cast-role">Judge of Naughty</div></div>
+    <div class="cast-card"><div class="cast-icon">🍇</div><div class="cast-name" style="color:#DAA520">HEDONISMBOT</div><div class="cast-role">Pleasure Seeker</div></div>
+    <div class="cast-card"><div class="cast-icon">👾</div><div class="cast-name" style="color:#5DBB63">LRRR</div><div class="cast-role">Omicronian Ruler</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">⚖️ Legal &amp; intellectual property</div>
+  <div class="legal-box">
+    <p><strong>Futurama</strong>, all character names, likenesses, catchphrases, and related elements are the intellectual property of <strong>The Walt Disney Company</strong> and its subsidiaries, including <strong>20th Television Animation</strong> (formerly 20th Century Fox Television). The series is distributed by <strong>Hulu</strong>.</p>
+    <p>This is an <strong>independent, non-commercial fan project</strong> created for personal entertainment and educational purposes only. It is not affiliated with, endorsed by, or connected to Disney, Hulu, 20th Television Animation, Matt Groening, or any associated rights holders.</p>
+    <p>No copyright infringement is intended. Character simulations are AI-generated parody under fair use principles (17 U.S.C. § 107). This extension runs entirely in your browser — no conversation data is stored on any external server. Your API key is saved locally in <code style="font-size:11px">chrome.storage.local</code> and transmitted only to your chosen provider.</p>
+    <p style="color:var(--fg3);font-size:11px">For removal requests, open an issue at the repository linked in the extension manifest.</p>
+    <div class="dev-tag">#DHSeaDev</div>
+  </div>
+</div>
+
+<footer>
+  Planet Express Lounge v4.0 &nbsp;·&nbsp; Chrome Extension MV3 &nbsp;·&nbsp; Serverless
+  <br><span style="opacity:.4;font-size:10px">"Good news, everyone!" — Professor Hubert J. Farnsworth</span>
+</footer>
+
+<script>
+const canvas = document.getElementById('stars');
+const ctx = canvas.getContext('2d');
+let stars = [];
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+function init(n=200) { stars = Array.from({length:n},()=>({x:Math.random()*canvas.width,y:Math.random()*canvas.height,r:Math.random()*1.2+.3,o:Math.random()*.6+.2,s:(Math.random()-.5)*.03})); }
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for(const s of stars){s.o+=s.s;if(s.o<.1||s.o>.8)s.s*=-1;ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fillStyle=`rgba(200,220,255,${s.o.toFixed(2)})`;ctx.fill();}
+  requestAnimationFrame(draw);
+}
+resize(); init(); draw();
+window.addEventListener('resize',()=>{resize();init();});
+</script>
+</body>
+</html>
