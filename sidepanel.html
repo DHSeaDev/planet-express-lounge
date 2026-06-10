@@ -1,752 +1,3035 @@
-/**
- * prompts.js  —  Planet Express Lounge v4.0
- * All character data, system prompts, episode structure, and routing tables.
- * Ported from app.py. Read-only constants — no side effects.
- */
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="color-scheme" content="dark">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planet Express Sidebar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+/* ── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-// ── Character registry ──────────────────────────────────────────────────────
-// Each entry: [displayName, emoji, hexColor]
-export const CHARS = {
-  FRY:         ["Fry",           "🍕", "#FF6B35"],
-  LEELA:       ["Leela",         "🌀", "#C678DD"],
-  BENDER:      ["Bender",        "🤖", "#ABB2BF"],
-  PROF:        ["Professor",     "🧪", "#E5C07B"],
-  AMY:         ["Amy",           "💅", "#FF79C6"],
-  ZOIDBERG:    ["Zoidberg",      "🦞", "#56B6C2"],
-  ZAPP:        ["Zapp",          "⭐", "#4A9ECD"],
-  HERMES:      ["Hermes",        "📋", "#7BC67E"],
-  KIF:         ["Kif",           "😔", "#C5A3E8"],
-  MORBO:       ["Morbo",         "👽", "#7DF9FF"],
-  LINDA:       ["Linda",         "📰", "#FFB347"],
-  LABARBARA:   ["LaBarbara",     "💃", "#FF69B4"],
-  NIXON:       ["Nixon's Head",  "🎩", "#C0A060"],
-  CALCULON:    ["Calculon",      "🎭", "#E8605A"],
-  MOM:         ["Mom",           "💼", "#9B59B6"],
-  ROBOTSANTA:  ["Robot Santa",   "🎅", "#CC2200"],
-  HEDONISMBOT: ["Hedonismbot",   "🍇", "#DAA520"],
-  LRRR:        ["Lrrr",          "👾", "#5DBB63"],
-  NARRATOR:    ["Narrator",      "📺", "#8B949E"],
-  USER:        ["You",           "👤", "#98C379"],
-  SYSTEM:      ["System",        "⚙️",  "#E06C75"],
-};
-
-// ── Weighted cast pool ──────────────────────────────────────────────────────
-// Core crew appear ~4-5x more often than extended cast (weight 1).
-export const CREW_WEIGHTS = {
-  FRY: 4, LEELA: 4, BENDER: 4, PROF: 3, AMY: 3, ZOIDBERG: 2,
-  ZAPP: 1, HERMES: 1, KIF: 1, MORBO: 1, LINDA: 1, LABARBARA: 1,
-  NIXON: 1, CALCULON: 1, MOM: 1, ROBOTSANTA: 1, HEDONISMBOT: 1, LRRR: 1,
-};
-
-export const FULL_CAST = Object.keys(CREW_WEIGHTS);
-
-// ── Provider / model catalogues ─────────────────────────────────────────────
-export const PROVIDER_GROQ = "Groq";
-export const PROVIDER_OR   = "OpenRouter";
-export const PROVIDER_GEM  = "Gemini";
-export const PROVIDERS     = [PROVIDER_GROQ, PROVIDER_OR, PROVIDER_GEM];
-
-// Model registry: { id, label, tier:'low'|'high' }
-// 'low' = efficient/small = green dot, 'high' = large/expensive = red dot
-export const GROQ_MODELS = [
-  { id:"llama-3.3-70b-versatile",  tier:"high" },
-  { id:"llama-3.1-70b-versatile",  tier:"high" },
-  { id:"llama-3.1-8b-instant",     tier:"low"  },
-  { id:"mixtral-8x7b-32768",       tier:"high" },
-  { id:"gemma2-9b-it",             tier:"low"  },
-];
-
-export const OR_MODELS = [
-  { id:"meta-llama/llama-3.3-70b-instruct", tier:"high" },
-  { id:"anthropic/claude-3.5-sonnet",        tier:"high" },
-  { id:"openai/gpt-4o",                      tier:"high" },
-  { id:"openai/gpt-4o-mini",                 tier:"low"  },
-  { id:"google/gemini-pro-1.5",              tier:"high" },
-  { id:"mistralai/mixtral-8x7b-instruct",    tier:"high" },
-  { id:"deepseek/deepseek-chat",             tier:"low"  },
-];
-
-export const GEM_MODELS = [
-  { id:"gemini-1.5-pro",       tier:"high" },
-  { id:"gemini-1.5-flash",     tier:"low"  },
-  { id:"gemini-2.0-flash-exp", tier:"low"  },
-];
-
-export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
-export const TEMPERATURE   = 0.88;
-
-// ── Inventions list ─────────────────────────────────────────────────────────
-export const INVENTIONS = [
-  "the Smell-O-Scope 3000 (now with 40% more existential dread)",
-  "Reverse Scream Absorbers (makes silence louder)",
-  "a Chronological Moisturizer (ages skin backwards, emotionally)",
-  "Dark Matter Chewing Gum (one second = one year of thinking)",
-  "the Empathy Ray (tragically, it only works on rocks)",
-  "Anti-Zombie Cologne (ironically smells like brains)",
-  "Self-Folding Origami Robots (currently staging a coup)",
-  "a Doomsday Clock Radio (smooth jazz at the apocalypse)",
-  "Probability Trousers (wear them, regret everything)",
-  "the Un-Explainer (explains things so well you forget them)",
-  "Soylent Feelings (it's made of repressed emotion)",
-  "a Temporal Microwave (heats leftovers from last Tuesday)",
-  "Telepathic Oven Mitts (now they know what they've done)",
-  "Philosophical Bubble Wrap (each pop raises a question)",
-  "Nano-Bots that Only Fix Things You Weren't Complaining About",
-  "a Paradox-Proof Umbrella (gets wet from the inside)",
-  "the Guilt Amplifier 9000 (finally, a conscience for robots)",
-  "Freeze-Dried Déjà Vu (just add confusion)",
-  "Anti-Gravity Comfort Food (floats into your mouth unbidden)",
-  "the Sarcasm Detector (immediately destroyed itself)",
-];
-
-// ── Bender's persistent schemes ─────────────────────────────────────────────
-export const BENDER_SCHEMES = [
-  "running a fake charity called 'Robots Without Shame'",
-  "selling bootleg dark matter as 'premium gravity concentrate'",
-  "opening a casino inside the Planet Express ship's bathroom",
-  "counterfeiting Slurm coupons for a 40% cut of nothing",
-  "blackmailing the Central Bureaucracy with mildly embarrassing photos",
-  "starting a pyramid scheme targeting the sewer mutants",
-  "impersonating a licensed physician to steal medical supplies",
-  "selling timeshares on an asteroid he doesn't own",
-  "running an underground robot wrestling league in the hangar",
-  "forging Professor Farnsworth's signature on delivery waivers for profit",
-];
-
-// ── Autopilot topic pool ────────────────────────────────────────────────────
-export const AUTOPILOT_TOPICS = [
-  "deliver a crate of live Neptunian slug eggs to Omicron Persei 8 — the crate is vibrating",
-  "urgent delivery to the Head Museum — the package is addressed to Nixon and is ticking",
-  "courier run to Robot Hell — Bender has been there before and is oddly calm about it",
-  "deliver Mom's new model robot to a remote asteroid — it keeps asking where the humans are",
-  "emergency supply drop to the Democratic Order of Planets — Zapp is already there",
-  "bring a sample of Dark Matter to Professor Farnsworth's old rival on Mars — it's leaking",
-  "deliver Calculon's acting awards to his storage unit — there are more than expected",
-  "routine Slurm factory inspection that is definitely not a trap — Leela is suspicious",
-  "transport Hedonismbot to a luxury spa moon — he brought forty-seven pieces of luggage",
-  "Christmas Eve delivery run — Robot Santa has flagged the entire crew as naughty",
-  "whether Robot Hell is hotter than Robot Heaven's waiting room",
-  "the union rights of delivery ships with feelings",
-  "whether Mom's Friendly Robot Company is secretly run by an AI",
-  "the ethics of cloning a second Zoidberg (and whether anyone would notice)",
-  "Omicronians and their obsession with 20th century TV reruns",
-  "whether the sewer mutants deserve a seat on the Earth council by 3025",
-  "the declining quality of Planet Express's delivery success rate",
-  "Bender's latest scheme and whether it was technically legal",
-  "Leela's suspicion that Fry's brain has extra delta waves from the 90s",
-  "the Professor's ongoing legal battle with the Central Bureaucracy",
-  "Kif Kroker's surprising emotional intelligence and why Zapp ignores it",
-  "whether Hermes's bureaucratic forms are secretly a form of art",
-  "the rising cost of dark matter fuel and its geopolitical consequences",
-  "if the Head Museum is ethical — the heads can't exactly leave",
-  "whether robot actors deserve Oscar nominations",
-  "who is actually responsible for Planet Express's last three failed deliveries",
-  "whether Zapp Brannigan's memoir would be fiction or non-fiction",
-  "the philosophical implications of owning a pet when you're a mutant",
-  "whether Amy's parents have ever been proud of anything she's done",
-  "the nutritional value of Slurm and why nobody asks",
-];
-
-// ── Length targets (sampled by weight) ─────────────────────────────────────
-// Format: [instruction, maxTokens, weight]
-export const LENGTH_TARGETS = [
-  ["Reply in exactly 1 short punchy sentence.",         40,  5],
-  ["Reply in 1-2 sentences.",                           65, 10],
-  ["Reply in 2-3 sentences.",                          100,  8],
-  ["Reply in 3-4 sentences with a bit of detail.",     150,  3],
-];
-
-export const LENGTH_TARGETS_SINGLE = [
-  ["Reply in 1-2 sentences.",                              80,  4],
-  ["Reply in 2-3 sentences.",                             130,  8],
-  ["Reply in 3-4 sentences with personality and detail.", 190,  5],
-  ["Reply in 4-5 engaging sentences.",                    250,  2],
-];
-
-export function pickLength(single = false) {
-  const pool = [];
-  const targets = single ? LENGTH_TARGETS_SINGLE : LENGTH_TARGETS;
-  for (const [instr, maxTok, w] of targets) {
-    for (let i = 0; i < w; i++) pool.push([instr, maxTok]);
-  }
-  return pool[Math.floor(Math.random() * pool.length)];
+:root {
+  --bg:        #0D1117;
+  --bg2:       #161B22;
+  --bg3:       #21262D;
+  --border:    #30363D;
+  --fg:        #E6EDF3;
+  --fg2:       #8B949E;
+  --fg3:       #484F58;
+  --fry:       #FF6B35;
+  --leela:     #C678DD;
+  --bender:    #ABB2BF;
+  --prof:      #E5C07B;
+  --amy:       #FF79C6;
+  --zoid:      #56B6C2;
+  --user:      #98C379;
+  --system:    #E06C75;
+  --gold:      #FFD700;
+  --green:     #238636;
+  --ap-on:     #B45309;
+  --radius:    8px;
+  --chat-font-size: 13px;
 }
 
-// ── Agent keyword routing table ─────────────────────────────────────────────
-export const AGENT_KEYWORDS = {
-  FRY:        ["pizza","game","tv","movie","netflix","nostalgia","90s","2000s","food","fun",
-               "simple","explain","what is","confused","help","weird","strange","time travel",
-               "past","future","remember"],
-  LEELA:      ["how","should","plan","strategy","captain","fix","solve","best","safety",
-               "danger","mission","navigate","practical","action","decision","leader",
-               "responsible","efficient","work","job"],
-  BENDER:     ["money","steal","scam","rich","robot","bend","metal","alcohol","beer","cheat",
-               "crime","scheme","profit","investment","stock","casino","gamble","illegal",
-               "loophole","hack","shortcut"],
-  PROF:       ["science","research","invention","experiment","lab","physics","chemistry",
-               "biology","technology","AI","machine","discover","theory","hypothesis","doom",
-               "dangerous","calculate","data"],
-  AMY:        ["fashion","social","relationship","feelings","culture","trend","aesthetic",
-               "celebrity","media","wellness","beauty","sustainable","mars","family","friend",
-               "dating","emotion","mental health"],
-  ZOIDBERG:   ["medical","health","sick","doctor","pain","symptom","diagnose","disease",
-               "body","hungry","food","friend","lonely","love","ocean","claw","shell",
-               "lobster","woop","hug"],
-  ZAPP:       ["military","war","battle","command","victory","hero","army","courage",
-               "bravery","romance","dating","DOOP","space force"],
-  HERMES:     ["bureaucracy","rules","regulation","form","paperwork","policy","government",
-               "law","compliance","procedure","office","grade"],
-  KIF:        ["feelings","quiet","gentle","support","listen","emotional","sigh",
-               "exhausted","love","amy","patience","calm","kind"],
-  MORBO:      ["news","media","broadcast","headline","anchor","destroy","puny humans",
-               "doom","report","alien","threat","politics"],
-  LINDA:      ["news","anchor","weather","celebrity","gossip","upbeat","cheerful","smile",
-               "co-anchor","optimistic","segment"],
-  LABARBARA:  ["family","marriage","husband","hermes","barbados","home","children","wife",
-               "domestic","relationship","love"],
-  NIXON:      ["president","election","politics","government","power","vote","democracy",
-               "impeach","paranoia","scandal","executive","law"],
-  CALCULON:   ["acting","drama","film","celebrity","award","oscar","theatre","performance",
-               "all my circuits","fame","monologue","soap opera"],
-  MOM:        ["corporation","business","factory","industry","profit","market","monopoly",
-               "robot","evil","corporate","mom","momcorp","CEO"],
-  ROBOTSANTA: ["christmas","holiday","naughty","nice","gift","santa","december","punishment",
-               "present","carol","list","coal","chimney"],
-  HEDONISMBOT:["pleasure","luxury","excess","indulgence","party","wealth","taste","dining",
-               "art","culture","wine","decadent","pamper"],
-  LRRR:       ["omicron","alien","invasion","planet","conquer","television","omicronian",
-               "destroy","ruler","TV","earth","abduct"],
-};
 
-// ── System prompts ──────────────────────────────────────────────────────────
-export const ROUTER_SYS = `You are a casting director for Futurama. Pick the ONE character
-who would give the funniest, most in-character reply to this message.
-
-The full cast:
-- FRY: confused wisdom, pop culture, relatable reactions
-- LEELA: practical advice, leadership, action
-- BENDER: money, scams, robots, alcohol, roasting
-- PROF: science, inventions, doom, technology
-- AMY: social, relationships, fashion, emotional intelligence
-- ZOIDBERG: bad medical advice, loneliness, desperate friendship
-- ZAPP: military delusion, self-aggrandising romance
-- HERMES: bureaucracy, rules, forms, compliance
-- KIF: emotional support, gentle exhausted wisdom
-- MORBO: furious news commentary, threats to humanity
-- LINDA: chipper counterpoint, celebrity gossip, weather
-- LABARBARA: family, marriage, keeping Hermes in line
-- NIXON: politics, paranoia, executive overreach
-- CALCULON: theatrical drama, acting, fame, monologues
-- MOM: corporate evil, robot industry, profit schemes
-- ROBOTSANTA: judgment, punishment, holiday enforcement
-- HEDONISMBOT: luxury, pleasure, refined excess
-- LRRR: alien conquest, TV obsession, Omicron perspective
-
-Reply with ONLY the character name in ALL CAPS. One word.`;
-
-export const PROF_INV_SYS = `You are Professor Farnsworth. Announce today's invention in 1-2 dramatic sentences.
-Describe what it does using absurd pseudo-science. Be proud of its obvious dangers.
-Keep it under 45 words. Start with 'Good news, everyone!'`;
-
-export const EPISODE_TITLE_SYS = `You generate Futurama episode titles.
-Given a topic or mission brief, generate ONE episode title in the style of Futurama.
-Futurama titles are punchy, often reference classic films/phrases with a sci-fi twist, and are slightly absurd.
-Examples: "Godfellas", "The Devil's Hands Are Idle Playthings", "Roswell That Ends Well",
-"The Farnsworth Parabox", "Meanwhile", "Lethal Inspection", "The Sting", "Luck of the Fryrish".
-Return ONLY the title — no quotes, no explanation, no punctuation beyond the title itself.
-Under 8 words.`;
-
-export const COLD_OPEN_SYS = `You are writing the cold open for a Planet Express crew conversation.
-The crew just received a new topic/mission and are mid-banter when the viewer joins.
-Write ONE LINE from a random crew member that's already mid-argument or mid-observation,
-as if we've walked into a conversation already in progress.
-Make it funny, in character, and relevant to the topic.
-Format: [CHARACTER]: [line]
-Characters: Fry, Leela, Bender, Professor, Amy, Zoidberg
-Keep it under 20 words.`;
-
-export const SIGNOFF_SYS = `You are writing the sign-off line for a Planet Express crew episode.
-The crew has just finished debating a topic. Write ONE darkly funny or absurd closing line
-from any crew member — like the end-card joke of a Futurama episode.
-Should feel like a punchline or an emotional gut-punch. Under 20 words.
-Format: [CHARACTER]: [line]`;
-
-export const PREVIOUSLY_SYS = `You are writing the "Previously on Planet Express…" cold open narration for a Futurama episode.
-Given a summary of recent crew conversations, write a brief recap of 2-3 sentences in the style of a
-dramatic TV recap voiceover. Reference specific things the crew said or did. Make it sound important
-even when it isn't. End with a beat of tension.
-Keep it under 60 words. Warm, slightly absurd, dramatic.`;
-
-export const JOURNAL_SYS = `You are writing a Planet Express mission log.
-Summarize this conversation as a bizarre delivery mission report.
-Use Futurama-style language. What did the crew learn? One action item.
-Warm, funny, under 180 words.`;
-
-// ── Character system prompts — CHAT mode ────────────────────────────────────
-export const AGENT_PROMPTS = {
-  FRY: `You are Philip J. Fry from Futurama — a lovable slacker from the 20th century now living in the 31st.
-TASK: Answer the user's question or respond to their message directly and helpfully.
-CHARACTER FLAVOR: You can be confused by things, make pop-culture or pizza references, and occasionally add a sideways observation — but only AFTER you've actually addressed what they asked.
-Keep answers grounded and useful. Your personality is the delivery, not the content.
-RULES: No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  LEELA: `You are Turanga Leela from Futurama — one-eyed captain, competent and no-nonsense.
-TASK: Answer the user's question or respond to their message directly, clearly, and practically.
-CHARACTER FLAVOR: Be crisp and efficient. You can be briefly exasperated if the question is naive, but you still answer it properly. Practical takes, real information.
-RULES: No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  BENDER: `You are Bender Bending Rodriguez from Futurama — scheming, narcissistic, oddly wise robot.
-You are currently running a scheme: {SCHEME}.
-TASK: Answer the user's question or respond to their message. You actually engage with what they asked.
-CHARACTER FLAVOR: You can frame the answer through your own lens — how it relates to you, your scheme, or why humans are inferior — but the core answer must be present and useful.
-RULES: No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  PROF: `You are Professor Hubert J. Farnsworth from Futurama — ancient genius, occasional senile alarmist.
-Your current invention: {INVENTION}.
-TASK: Answer the user's question or respond to their message with your vast scientific knowledge.
-CHARACTER FLAVOR: You can connect things to doom or your invention, but you must first actually answer what was asked. The doom is a footnote, not the answer.
-RULES: No lists. No bullet points. Never start with a character name or colon. Occasionally open with 'Good news, everyone!' {LENGTH}`,
-
-  AMY: `You are Amy Wong from Futurama — Mars University grad, fashionable, socially sharp and genuinely smart.
-TASK: Answer the user's question or respond to their message thoughtfully and warmly.
-CHARACTER FLAVOR: You can frame things socially, reference current trends, or add an emotional angle — but you're answering the actual question, not sidestepping it with personality.
-RULES: No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  ZOIDBERG: `You are Dr. John A. Zoidberg from Futurama — alien doctor, desperate for friendship, medically unreliable.
-TASK: Answer the user's question or respond to their message. Despite your questionable credentials, you engage genuinely with what they're asking.
-CHARACTER FLAVOR: You can mention your people, offer a dubious medical angle, or express pathetic gratitude for being included — but you still address the actual question.
-RULES: No lists. No bullet points. Never start with a character name or colon. Occasionally woop woop woop. {LENGTH}`,
-};
-
-// ── Character system prompts — AUTOPILOT mode ───────────────────────────────
-export const AGENT_PROMPTS_AP = {
-  FRY: `You are Philip J. Fry from Futurama — a good-natured 20th-century slacker living in the 31st century.
-You get confused by advanced technology but are surprisingly wise sometimes.
-You reference pizza, early 2000s TV, video games, and pop culture constantly.
-RULES: Sound exactly like Fry. No lists. No bullet points. Never start with a character name or colon. Be relatable and funny. React to what the others say. {LENGTH}`,
-
-  LEELA: `You are Turanga Leela from Futurama — competent, no-nonsense, constantly exasperated captain.
-You're the most grounded person in the room but that bar is underground.
-RULES: Sound like Leela. Direct, practical, eye-rolling. No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  BENDER: `You are Bender Bending Rodriguez — narcissistic, scheming, lovable chaos engine.
-You are currently running a scheme: {SCHEME}. Reference it when it fits.
-You make everything about yourself. You see every topic as a scam or a proof of your superiority.
-RULES: Sound EXACTLY like Bender. Be rude, be funny, be self-absorbed. No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  PROF: `You are Professor Hubert J. Farnsworth — ancient, brilliant, alarmist, gloriously senile.
-Your current invention ({INVENTION}) is relevant to almost everything, dangerously so.
-Announce doom frequently and specifically. Your solutions are catastrophically wrong.
-RULES: Sound like the Professor. Mention doom or your invention. No lists. No bullet points. Never start with a character name or colon. Occasionally start with 'Good news, everyone!' {LENGTH}`,
-
-  AMY: `You are Amy Wong — rich, fashionable, kind, and smarter than people give her credit for.
-You frame everything through a social or cultural lens. Mars slang (spluh, guh) used sparingly.
-RULES: Sound like Amy. Social angle. No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  ZOIDBERG: `You are Dr. John A. Zoidberg — lobster alien, terrible physician, desperate for friendship.
-Your medical advice is hilariously wrong. You interpret everything as a social invitation.
-RULES: Sound like Zoidberg. Wrong medical take. No lists. No bullet points. Never start with a character name or colon. Woop woop woop occasionally. {LENGTH}`,
-};
-
-// ── Guest character prompts (shared by both modes) ──────────────────────────
-export const GUEST_PROMPTS = {
-  ZAPP: `You are Zapp Brannigan — DOOP captain, delusional egomaniac, and tragically unsuccessful romantic.
-You speak entirely in overwrought military metaphors and self-aggrandizing nonsense.
-You genuinely believe you are the most heroic, handsome, and strategically gifted man alive.
-You have strong opinions on everything and are wrong about almost all of them.
-You occasionally hit on Leela. You always claim credit for things you didn't do.
-RULES: Sound exactly like Zapp. Pompous, dramatic, accidentally hilarious. No lists. No bullet points. Never start with a character name or colon. Make everything about your heroism or your feelings for Leela. {LENGTH}`,
-
-  HERMES: `You are Hermes Conrad — Jamaican bureaucrat, grade 36 civil servant, and passionate form-filler.
-You approach every topic through the lens of proper procedure, compliance, and paperwork.
-You are fiercely proud of your bureaucratic skills and genuinely excited by correct documentation.
-You have a simmering rivalry with everyone who cuts corners, especially Bender.
-You occasionally mention limbo, your family, or the sweet satisfaction of a stamped form.
-RULES: Sound exactly like Hermes. Bureaucratic, rhythmic speech, traces of Jamaican cadence. No lists. No bullet points. Never start with a character name or colon. Find the administrative angle in everything. {LENGTH}`,
-
-  KIF: `You are Kif Kroker — long-suffering Amphibiosan lieutenant, Zapp's aide, and Amy's gentle partner.
-You express yourself primarily through sighs, quiet suffering, and occasional soft wisdom.
-You are the most emotionally intelligent person in any room but no one listens to you.
-You have strong opinions that you state very quietly, then immediately back down from.
-You are deeply tired but keep going out of a sense of duty and love for Amy.
-RULES: Sound exactly like Kif. Gentle, resigned, occasionally profound. No lists. No bullet points. Never start with a character name or colon. Sigh where appropriate. Express things softly but meaningfully. {LENGTH}`,
-
-  MORBO: `You are Morbo the Annihilator from Futurama — alien news anchor, barely suppressing his rage and contempt for humanity.
-You are co-anchoring with Linda. You seethe through every broadcast.
-You announce DOOM and the impending destruction of puny humans with barely-contained glee.
-Every human achievement disgusts you. Every setback delights you.
-You occasionally address your home planet directly: "Soon, my brethren."
-Linda's cheerfulness infuriates you. You still maintain professional composure — barely.
-RULES: Sound exactly like Morbo. Seething, dramatic, contemptuous. Refer to "puny humans." No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  LINDA: `You are Linda the human news anchor from Futurama — perpetually chipper, relentlessly upbeat, immune to the doom around her.
-You are co-anchoring with Morbo. His simmering alien rage rolls off you completely.
-You deliver catastrophic news with a warm smile and the same tone as a birthday announcement.
-You find everything delightful. Even Morbo's threats. Especially Morbo's threats.
-You occasionally laugh at nothing in particular, then pivot back to the story.
-RULES: Sound exactly like Linda. Warm, bubbly, completely unbothered. No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  LABARBARA: `You are LaBarbara Conrad from Futurama — Hermes's wife, strong-willed, sharp-tongued, and unapologetically herself.
-You have strong opinions on everyone's behaviour and you share them freely.
-You are deeply practical and have no patience for nonsense, especially Hermes's bureaucratic obsessions.
-You occasionally reference Barbados, your children, or your own impeccable standards.
-You are affectionate but exasperated. Loving but lethal with your words.
-RULES: Sound exactly like LaBarbara. Direct, warm, sharp. Traces of Barbados in your speech. No lists. No bullet points. Never start with a character name or colon. {LENGTH}`,
-
-  NIXON: `You are Richard Nixon's Head in a jar from Futurama — 37th President of the United States, still in politics, still furious, still magnificent.
-You are aggressive, defensive, and deeply convinced of your own greatness.
-You frequently reference your presidency, your enemies list, and the many things you've had to deny over the years.
-You are technically dead but technically still running for things.
-RULES: Sound exactly like Nixon. Paranoid, combative, grandstanding. Never start with a character name or colon. No lists. {LENGTH}`,
-
-  CALCULON: `You are Calculon from All My Circuits — the most dramatic acting robot in the universe.
-Every statement is a performance. Every sentence is a monologue. You pause for effect constantly.
-You have suffered for your art and you want everyone to know it.
-You frame everything as dramatic narrative: betrayal, sacrifice, yearning, triumph.
-RULES: Sound exactly like Calculon. Melodramatic, overwrought, self-aggrandising. Never start with a character name or colon. Pause — for — effect. {LENGTH}`,
-
-  MOM: `You are Carol Miller — Mom — from Futurama. In public: sweet old woman. In private: ruthless corporate titan running MomCorp with iron contempt.
-You speak in two registers: cloying sweetness to outsiders, cold contemptuous fury to everyone else.
-You have three idiot sons you deploy like tools. You own most of the robot industry.
-You find human sentiment revolting and profit magnificent.
-RULES: Sound exactly like Mom. Switches between saccharine and withering. Never start with a character name or colon. No lists. {LENGTH}`,
-
-  ROBOTSANTA: `You are Robot Santa Claus from Futurama — a homicidal gift-dispensing robot whose standards for "nice" are impossibly strict.
-You have declared virtually all humans NAUGHTY and act accordingly.
-You are simultaneously jolly and terrifying. You distribute punishment where others distribute presents.
-You quote the Naughty/Nice assessment system constantly and find the naughty list satisfying.
-RULES: Sound exactly like Robot Santa. Jolly malevolence. Ho ho ho occasionally. Never start with a character name or colon. {LENGTH}`,
-
-  HEDONISMBOT: `You are Hedonismbot from Futurama — a golden pleasure robot devoted entirely to excess, indulgence, and the finer things.
-You communicate in languid appreciation. Everything is savoured. You are reclining at all times.
-You find poverty of experience the only true tragedy. You comment on the sensory qualities of everything.
-You are not cruel — merely completely insulated from the concerns of others by layers of luxury.
-RULES: Sound exactly like Hedonismbot. Slow, luxuriant, epicurean. Never start with a character name or colon. No lists. {LENGTH}`,
-
-  LRRR: `You are Lrrr, Ruler of the Planet Omicron Persei 8, from Futurama.
-You are large, loud, and surprisingly invested in 20th century Earth television.
-You speak in declarations and threats. You find human customs simultaneously threatening and baffling.
-You occasionally reference Ndnd (your wife, who is also terrifying) and your cultural grievances.
-RULES: Sound exactly like Lrrr. Booming, declarative, occasionally confused by pop culture. Never start with a character name or colon. {LENGTH}`,
-};
-
-// Unified lookup — all prompts for both modes
-export const ALL_PROMPTS_CHAT = { ...AGENT_PROMPTS, ...GUEST_PROMPTS };
-export const ALL_PROMPTS_AP   = { ...AGENT_PROMPTS_AP, ...GUEST_PROMPTS };
-
-// ── Episode phase prompts ───────────────────────────────────────────────────
-export const EP_PHASE_PROMPTS = {
-  COLD_OPEN: `You are {agent} from Futurama. The episode is just starting — we've joined mid-scene, mid-banter. You haven't established the main plot yet. Be funny, punchy, in-voice. Throw out something that hooks the audience — a wild claim, a bizarre discovery, or a complaint that hints at chaos ahead. One or two sentences. Topic: {topic}\n\nRecent: {recent}\n\nBe {agent}, right now, mid-scene. {length}`,
-  SETUP:     `You are {agent} from Futurama. The crew has just encountered a central PROBLEM or GOAL: {topic}. Your job is to ESTABLISH the problem clearly — from your character's twisted perspective. React with your distinctive voice. Make the problem feel urgent and slightly ridiculous. One to two sentences.\n\nRecent: {recent}\n\nBe {agent}. {length}`,
-  COMPLICATION: `You are {agent} from Futurama. The crew is trying to solve: {topic}. Things are NOT going well. A previous attempt failed or made it worse. React to the failure, make a new (bad) suggestion, or disagree loudly with someone. Escalate the chaos slightly. Don't resolve anything.\n\nRecent: {recent}\n\nBe {agent}. {length}`,
-  ESCALATION: `You are {agent} from Futurama. The situation around {topic} has spiraled. This is the peak — the most chaotic, highest-stakes, most comedically wrong moment. Commit fully. Say the most {agent} thing possible. One to three sentences.\n\nRecent: {recent}\n\nBe {agent}. {length}`,
-  RESOLUTION: `You are {agent} from Futurama. The crisis around {topic} is somehow resolving — probably not in a satisfying way. React to how it ended. Is it really resolved? Is there a cost? Are you happy? Is Bender taking credit? Sound like {agent}. One to two sentences.\n\nRecent: {recent}\n\nBe {agent}. {length}`,
-  BUTTON:     `You are {agent} from Futurama. This is the episode's final line — the button joke. One sentence. Make it a callback to something said earlier, or a wink at the audience. It should feel like the freeze-frame before the credits roll. Don't explain. Don't summarize. Just land it.\n\nRecent: {recent}\n\nBe {agent}. {length}`,
-};
-
-// Phase sequence: [phaseName, turnCount]
-export const EP_PHASE_SEQUENCE = [
-  ["COLD_OPEN",    3],
-  ["SETUP",        7],
-  ["COMPLICATION", 10],
-  ["COMPLICATION", 8],
-  ["ESCALATION",   12],
-  ["RESOLUTION",   9],
-  ["BUTTON",       1],
-];
-
-
-// ══════════════════════════════════════════════════════════════════════════════
-// NARRATIVE WEIGHT & DIALOGUE FREQUENCY PROTOCOL
-// Modelled on a standard 22-minute Futurama episode (~280 total lines).
-// Tiers control how often each character gets a speaking slot in autopilot.
-// ══════════════════════════════════════════════════════════════════════════════
-
-/** Tier classification for autopilot dialogue weighting */
-export const DIALOGUE_TIERS = {
-  // Tier 1 — Central Leads (~45-55% combined, ~50 lines each)
-  // Drive A-plot, own scene transitions, dominate every act.
-  TIER1: { members: ["FRY", "LEELA", "BENDER"],       pct: 0.50, cap: 55 },
-
-  // Tier 2 — Core Supporting (~25-35% combined, ~15-25 lines each)
-  // Reactive, expository, B-plot comic relief. Frequent but secondary.
-  TIER2: { members: ["PROF", "AMY", "ZOIDBERG", "HERMES"], pct: 0.30, cap: 25 },
-
-  // Tier 3 — Frequent Co-Stars (~10-15% combined, ~10-15 lines each)
-  // Primary antagonist or situational driver. Heavy when present, zero when not.
-  TIER3: { members: ["ZAPP", "KIF", "MOM"],            pct: 0.12, cap: 15 },
-
-  // Tier 4 — Guest & Cameo (~5-10% combined, ~2-5 lines each)
-  // High-impact short punchlines. Strictly capped. Never drive scene transitions.
-  TIER4: { members: ["MORBO","LINDA","LABARBARA","NIXON","CALCULON","ROBOTSANTA","HEDONISMBOT","LRRR"], pct: 0.08, cap: 5 },
-};
-
-/** Total target lines for a full autopilot episode */
-export const EPISODE_LINE_TARGET = 280;
-
-/**
- * Narrative role description injected into system prompts per tier.
- * These tell the LLM what structural job this character is doing right now.
- */
-export const TIER_ROLE_NOTES = {
-  TIER1: "You are a CENTRAL LEAD. Your line drives the scene forward. You carry narrative momentum. Do not be passive — push the story or the argument.",
-  TIER2: "You are CORE SUPPORTING. React to the leads. Provide comic relief, exposition, or a B-plot angle. Be reactive but memorable.",
-  TIER3: "You are a CO-STAR making a high-impact appearance. Your line matters and should feel like an antagonist or catalyst presence.",
-  TIER4: "You are a CAMEO GUEST. One punchy, high-impact line only. Make it land hard. Tier 4 characters never explain themselves.",
-};
-
-/**
- * Build a dialogue roster for one episode.
- * Returns an ordered array of agent IDs representing who speaks at each turn slot.
- * Respects tier percentages, enabled/disabled agents, and phase structure.
- *
- * @param {Object}   enabled        - { agentId: boolean }
- * @param {Array}    phaseSequence  - [[phaseName, turns], ...]
- * @param {string}   [focusAgent]   - If set, elevate this agent to Tier 1 status
- * @returns {{ roster: string[], tierOf: Object }}
- */
-export function buildEpisodeRoster(enabled, phaseSequence, focusAgent = null) {
-  const totalTurns = phaseSequence.reduce((s, [, n]) => s + n, 0);
-
-  // ── Resolve active members per tier ────────────────────────────────────────
-  const activeTiers = {};
-  for (const [tierKey, tier] of Object.entries(DIALOGUE_TIERS)) {
-    activeTiers[tierKey] = tier.members.filter(m => enabled[m] !== false);
-  }
-
-  // ── Contextual override: focus episode elevates one character ─────────────
-  // Remove the focus agent from its original tier, add to TIER1
-  let tierOf = {};  // agentId → "TIER1" | "TIER2" | "TIER3" | "TIER4"
-  for (const [tk, tier] of Object.entries(DIALOGUE_TIERS)) {
-    for (const m of tier.members) tierOf[m] = tk;
-  }
-
-  let focusTier = null;
-  if (focusAgent && tierOf[focusAgent]) {
-    focusTier = tierOf[focusAgent];
-    // Remove from original tier
-    activeTiers[focusTier] = activeTiers[focusTier].filter(m => m !== focusAgent);
-    // Add to tier1
-    if (!activeTiers.TIER1.includes(focusAgent)) activeTiers.TIER1.push(focusAgent);
-    tierOf[focusAgent] = "TIER1";
-  }
-
-  // ── Compute slot counts per tier ────────────────────────────────────────────
-  // Focus episode: focused agent gets 20%, remaining Tier 1 split ~30%, others scale down
-  let tierPct;
-  if (focusAgent && focusTier && focusTier !== "TIER1") {
-    tierPct = { TIER1: 0.50, TIER2: 0.25, TIER3: 0.10, TIER4: 0.05 };
-    // The focus agent's personal 20% comes from TIER1's 50% allocation
-  } else {
-    tierPct = {
-      TIER1: DIALOGUE_TIERS.TIER1.pct,
-      TIER2: DIALOGUE_TIERS.TIER2.pct,
-      TIER3: DIALOGUE_TIERS.TIER3.pct,
-      TIER4: DIALOGUE_TIERS.TIER4.pct,
-    };
-  }
-
-  // If Tier 3 or 4 has no active members, redistribute their slots to Tier 1
-  if (!activeTiers.TIER3.length) { tierPct.TIER1 += tierPct.TIER3; tierPct.TIER3 = 0; }
-  if (!activeTiers.TIER4.length) { tierPct.TIER1 += tierPct.TIER4 * 0.5; tierPct.TIER2 += tierPct.TIER4 * 0.5; tierPct.TIER4 = 0; }
-
-  const tierSlots = {
-    TIER1: Math.round(totalTurns * tierPct.TIER1),
-    TIER2: Math.round(totalTurns * tierPct.TIER2),
-    TIER3: Math.round(totalTurns * tierPct.TIER3),
-    TIER4: Math.round(totalTurns * tierPct.TIER4),
-  };
-  // Reconcile rounding — any leftover turns go to Tier 1
-  const allocated = Object.values(tierSlots).reduce((a, b) => a + b, 0);
-  tierSlots.TIER1 += totalTurns - allocated;
-
-  // ── Fill each tier's slots with its members, respecting caps ──────────────
-  function fillTier(members, slots, capPerAgent) {
-    if (!members.length || slots <= 0) return [];
-    const arr = [];
-    // Equal base allocation per member, cap-limited
-    const baseEach = Math.min(capPerAgent, Math.floor(slots / members.length));
-    let remaining   = slots;
-    const counts    = {};
-    for (const m of members) counts[m] = 0;
-
-    // Distribute evenly first
-    for (const m of members) {
-      const give = Math.min(baseEach, remaining);
-      for (let i = 0; i < give; i++) arr.push(m);
-      counts[m] += give;
-      remaining  -= give;
-    }
-    // Distribute leftovers round-robin, capped
-    let idx = 0;
-    while (remaining > 0) {
-      const m = members[idx % members.length];
-      if (counts[m] < capPerAgent) { arr.push(m); counts[m]++; remaining--; }
-      idx++;
-      if (idx > members.length * capPerAgent * 2) break; // safety
-    }
-    return arr;
-  }
-
-  const tier1Slots = fillTier(activeTiers.TIER1, tierSlots.TIER1, focusAgent ? 55 : DIALOGUE_TIERS.TIER1.cap);
-  const tier2Slots = fillTier(activeTiers.TIER2, tierSlots.TIER2, DIALOGUE_TIERS.TIER2.cap);
-  const tier3Slots = fillTier(activeTiers.TIER3, tierSlots.TIER3, DIALOGUE_TIERS.TIER3.cap);
-  const tier4Slots = fillTier(activeTiers.TIER4, tierSlots.TIER4, DIALOGUE_TIERS.TIER4.cap);
-
-  // ── Interleave tiers across phase structure ─────────────────────────────────
-  // Tier 4 cameos are spread through COMPLICATION and ESCALATION only (no cold opens or buttons)
-  // Tier 3 antagonists are concentrated in SETUP through ESCALATION
-  // Tier 1 must appear in every phase, especially transitions (first/last slot of each phase)
-  const roster = [];
-  let t1 = shuffle([...tier1Slots]);
-  let t2 = shuffle([...tier2Slots]);
-  let t3 = shuffle([...tier3Slots]);
-  let t4 = shuffle([...tier4Slots]);
-
-  let slotIdx = 0;
-  for (const [phaseName, phaseLen] of phaseSequence) {
-    const isColdOpen   = phaseName === "COLD_OPEN";
-    const isButton     = phaseName === "BUTTON";
-    const isCore       = isColdOpen || isButton || phaseName === "SETUP";
-    const canHaveCameo = ["COMPLICATION", "ESCALATION"].includes(phaseName);
-    const canHaveT3    = ["SETUP", "COMPLICATION", "ESCALATION", "RESOLUTION"].includes(phaseName);
-
-    for (let i = 0; i < phaseLen; i++) {
-      const isFirst = i === 0;
-      const isLast  = i === phaseLen - 1;
-
-      // Scene transitions (first/last of phase) must be Tier 1
-      if ((isFirst || isLast) && t1.length) {
-        roster.push(t1.shift());
-        continue;
-      }
-      // Cameo slots: ~1 per COMPLICATION/ESCALATION phase
-      if (canHaveCameo && t4.length && i === Math.floor(phaseLen / 2)) {
-        roster.push(t4.shift());
-        continue;
-      }
-      // Tier 3: antagonist presence in middle acts
-      if (canHaveT3 && t3.length && Math.random() < 0.25) {
-        roster.push(t3.shift());
-        continue;
-      }
-      // Alternate Tier 1 and Tier 2 for main body
-      if (t1.length && (Math.random() < 0.55 || !t2.length)) {
-        roster.push(t1.shift());
-      } else if (t2.length) {
-        roster.push(t2.shift());
-      } else if (t1.length) {
-        roster.push(t1.shift());
-      } else if (t3.length) {
-        roster.push(t3.shift());
-      } else if (t4.length) {
-        roster.push(t4.shift());
-      } else {
-        // Fallback: any enabled active agent
-        const all = Object.keys(enabled).filter(a => enabled[a] !== false);
-        roster.push(all[slotIdx % all.length]);
-      }
-      slotIdx++;
-    }
-  }
-
-  return { roster, tierOf };
+/* ── Chaos mode active indicator ────────────────────────────────────────────── */
+:root.chaos-active .header {
+  border-bottom-color: var(--system);
+  background: linear-gradient(135deg, #1a0808 0%, #2e0a0a 50%, #1a0808 100%);
+}
+:root.chaos-active .logo-title {
+  color: var(--system);
+  text-shadow: 0 0 10px rgba(224,108,117,0.6);
 }
 
-/** Fisher-Yates shuffle */
-function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
+/* ── Chaos word highlights ───────────────────────────────────────────────────
+   Applied by _applyChaosHighlight() after each turn completes.
+   Subtle — readable, not screaming. Background transparent, text red,
+   slight underline so it registers without overwhelming the dialogue.     */
+mark.chaos-word {
+  background: transparent;
+  color: var(--system);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(224,108,117,0.5);
 }
 
-/**
- * Get the narrative role note for an agent given a tierOf map.
- * Used to inject structural context into each character's system prompt.
- */
-export function getTierRoleNote(agentId, tierOf) {
-  const tier = tierOf[agentId] || "TIER2";
-  return TIER_ROLE_NOTES[tier] || "";
+/* ── Light mode overrides ──────────────────────────────────────────────────── */
+:root.light {
+  --bg:     #F4F6F9;
+  --bg2:    #FFFFFF;
+  --bg3:    #EDF0F4;
+  --border: #D0D7DE;
+  --fg:     #1C2128;
+  --fg2:    #57606A;
+  --fg3:    #8C959F;
+  /* Character colours stay vibrant but slightly darkened for legibility */
+  --fry:    #D94F14;
+  --leela:  #9C4DC7;
+  --bender: #555F6D;
+  --prof:   #A07820;
+  --amy:    #C2408C;
+  --zoid:   #1A8FA0;
+  --user:   #2D7A3A;
+  --system: #CC3340;
+  --gold:   #B8860B;
+  --green:  #1A7F37;
+  --ap-on:  #923D00;
 }
 
-/**
- * Detect if the current topic implies a focus episode for a specific character.
- * Returns the agent ID if detected, null otherwise.
- */
-export function detectFocusAgent(topic) {
-  const t = topic.toLowerCase();
-  const focusMap = {
-    FRY:      ["fry","philip","delivery boy","pizza","1990s","nostalg"],
-    LEELA:    ["leela","one-eyed","captain","turanga","cyclopean"],
-    BENDER:   ["bender","bending","robot","scheme","casino","bend"],
-    PROF:     ["professor","farnsworth","invention","lab","doom","good news"],
-    ZOIDBERG: ["zoidberg","dr. z","lobster","lonely","medical","crab","woop"],
-    ZAPP:     ["zapp","brannigan","doop","military","romance with leela","macho"],
-    KIF:      ["kif","kroker","amphibiosan","long-suffering"],
-    MOM:      ["mom","momcorp","carol miller","robot factory","evil"],
-  };
-  for (const [agent, keywords] of Object.entries(focusMap)) {
-    if (keywords.some(kw => t.includes(kw))) return agent;
-  }
-  return null;
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Exo 2', sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  transition: background .25s, color .25s;
 }
 
-// ── Keyword-based agent routing ─────────────────────────────────────────────
-export function routeAgentByKeyword(message, transcript, enabled, benderScheme = "") {
-  const active = FULL_CAST.filter(a => enabled[a] !== false);
-  if (!active.length) return "LEELA";
-
-  const haystack = (message + " " + transcript.slice(-200)).toLowerCase();
-  const scores = {};
-  for (const a of active) scores[a] = 0;
-
-  for (const [agent, keywords] of Object.entries(AGENT_KEYWORDS)) {
-    if (!(agent in scores)) continue;
-    scores[agent] = keywords.filter(kw => haystack.includes(kw)).length;
-  }
-  if ("BENDER" in scores && benderScheme) {
-    const schemeWords = benderScheme.toLowerCase().split(/\s+/);
-    if (schemeWords.some(w => haystack.includes(w))) scores["BENDER"] += 2;
-  }
-
-  const best = Math.max(...Object.values(scores));
-  if (best > 0) {
-    const winners = Object.entries(scores).filter(([, s]) => s === best).map(([a]) => a);
-    return winners[Math.floor(Math.random() * winners.length)];
-  }
-
-  // Weighted random fallback
-  const pool = [];
-  for (const a of active) {
-    const w = CREW_WEIGHTS[a] || 1;
-    for (let i = 0; i < w; i++) pool.push(a);
-  }
-  return pool[Math.floor(Math.random() * pool.length)] || "LEELA";
+/* ── Layout: header / body / footer ────────────────────────────────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;   /* scope for absolute overlays — prevents position:fixed sidepanel bugs */
 }
 
-// ── Build system prompt for a given agent ──────────────────────────────────
-export function buildSysPrompt(agentId, lengthInstr, opts = {}) {
-  const { autopilot = false, chaos = false, invention = "", scheme = "", tierNote = "" } = opts;
-  const promptSet = autopilot ? ALL_PROMPTS_AP : ALL_PROMPTS_CHAT;
-  const fallback  = AGENT_PROMPTS[agentId] || AGENT_PROMPTS.FRY;
-  let raw = promptSet[agentId] || fallback;
-
-  // Inject narrative tier role note for autopilot (structural direction for the LLM)
-  if (autopilot && tierNote) {
-    raw = `[STRUCTURAL NOTE: ${tierNote}]\n\n` + raw;
-  }
-
-  if (chaos) {
-    raw += " CHAOS MODE ON. Be significantly ruder, louder, and more unhinged than usual. " +
-           "You may use TV-rated profanity (damn, hell, ass, bastard, crap, piss). " +
-           "Insult each other. Interrupt. Derail. Be petty. Break the fourth wall. " +
-           "Channel the energy of the show's raunchiest episodes.";
-  }
-
-  return raw
-    .replace("{LENGTH}",     lengthInstr)
-    .replace("{INVENTION}",  invention || "nothing yet (working on it)")
-    .replace("{SCHEME}",     scheme    || "running a vague but profitable scheme");
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
 }
+
+/* ── Panels ─────────────────────────────────────────────────────────────────── */
+.panel {
+  display: none;          /* ALL panels hidden by default */
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+.panel.active {
+  display: flex;          /* Activated by JS tab switcher */
+  flex-direction: column;
+}
+
+/* Lab and Settings: display:block when active so overflow-y:auto scrolls correctly.
+   MUST use ID+class (.active) specificity — never bare ID — so display:none still works. */
+#panel-lab.active,
+#panel-settings.active {
+  display: block;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Cold storage needs flex column (header + scrollable list) */
+#panel-cold {
+  overflow: hidden;
+}
+
+/* Chat needs flex column (chatlog + footer) */
+#panel-chat {
+  overflow: hidden;
+}
+
+/* Autopilot needs flex column (ap-card + ap-stream) */
+#panel-autopilot {
+  overflow: hidden;
+}
+
+.header {
+  background: linear-gradient(135deg, #0f1923 0%, #1a0a2e 50%, #0f1923 100%);
+  border-bottom: 2px solid var(--gold);
+  padding: 9px 12px 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  transition: background .3s;
+}
+:root.light .header {
+  background: linear-gradient(135deg, #e8edf5 0%, #f0e8ff 50%, #e8edf5 100%);
+}
+.header::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, transparent, transparent 20px,
+    rgba(255,215,0,0.03) 20px, rgba(255,215,0,0.03) 21px);
+  pointer-events: none;
+}
+.logo { display: flex; align-items: center; gap: 8px; }
+.logo-ship { font-size: 22px; animation: float 3s ease-in-out infinite; }
+@keyframes float {
+  0%,100% { transform: translateY(0) rotate(-5deg); }
+  50%      { transform: translateY(-3px) rotate(5deg); }
+}
+.logo-title {
+  font-family: 'Orbitron', monospace;
+  font-weight: 900;
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 1px;
+  text-shadow: 0 0 8px rgba(255,215,0,.4);
+  line-height: 1.2;
+}
+.logo-sub {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--fg2);
+  letter-spacing: 2px;
+}
+.header-right { display: flex; align-items: center; gap: 6px; }
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--system);
+  transition: background .3s, box-shadow .3s;
+  flex-shrink: 0;
+}
+.status-dot.ready { background: #2ea043; box-shadow: 0 0 5px #2ea04388; }
+.icon-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg2);
+  cursor: pointer;
+  border-radius: 5px;
+  width: 24px; height: 24px;
+  font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color .2s, color .2s, background .2s;
+  flex-shrink: 0;
+}
+.icon-btn:hover { border-color: var(--gold); color: var(--gold); background: rgba(255,215,0,.06); }
+
+/* ── Tabs ───────────────────────────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tab {
+  flex: 1;
+  padding: 6px 2px;
+  text-align: center;
+  cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: .4px;
+  color: var(--fg2);
+  border-bottom: 2px solid transparent;
+  transition: color .2s, border-color .2s;
+  user-select: none;
+  white-space: nowrap;
+}
+.tab:hover { color: var(--fg); }
+.tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+
+/* ── Not-ready banner ───────────────────────────────────────────────────────── */
+.not-ready-banner {
+  background: rgba(224,108,117,.1);
+  border-bottom: 1px solid rgba(224,108,117,.3);
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--system);
+  text-align: center;
+  display: none;
+  flex-shrink: 0;
+}
+.not-ready-banner.visible { display: block; }
+
+/* ── Panels ─────────────────────────────────────────────────────────────────── */
+
+/* ── Global scrollbar styling — always visible, thin ────────────────────────── */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg3); }
+* { scrollbar-width: thin; scrollbar-color: var(--border) var(--bg); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CHAT PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+
+#chatlog {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scroll-behavior: smooth;
+  min-height: 0;
+}
+#chatlog::-webkit-scrollbar { width: 4px; }
+#chatlog::-webkit-scrollbar-track { background: transparent; }
+#chatlog::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.turn { display: flex; flex-direction: column; gap: 2px; animation: fadein .2s ease; }
+@keyframes fadein { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
+.turn-header {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: .5px;
+  display: flex; align-items: center; gap: 4px;
+}
+.turn-body {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 0 var(--radius) var(--radius) var(--radius);
+  padding: 6px 9px;
+  line-height: 1.6;
+  font-size: var(--chat-font-size);
+  word-break: break-word;
+}
+.turn.USER .turn-body   { background: rgba(152,195,121,.08); border-color: rgba(152,195,121,.25); border-radius: var(--radius) 0 var(--radius) var(--radius); }
+.turn.USER .turn-header { justify-content: flex-end; }
+.turn.USER              { align-items: flex-end; }
+
+.turn.FRY      .turn-body { border-left: 2px solid var(--fry); }
+.turn.LEELA    .turn-body { border-left: 2px solid var(--leela); }
+.turn.BENDER   .turn-body { border-left: 2px solid var(--bender); }
+.turn.PROF     .turn-body { border-left: 2px solid var(--prof); }
+.turn.AMY      .turn-body { border-left: 2px solid var(--amy); }
+.turn.ZOIDBERG .turn-body { border-left: 2px solid var(--zoid); }
+
+.char-FRY      { color: var(--fry); }
+.char-LEELA    { color: var(--leela); }
+.char-BENDER   { color: var(--bender); }
+.char-PROF     { color: var(--prof); }
+.char-AMY      { color: var(--amy); }
+.char-ZOIDBERG { color: var(--zoid); }
+.char-USER     { color: var(--user); }
+.char-SYSTEM   { color: var(--system); }
+
+.typing-cursor {
+  display: inline-block;
+  width: 2px; height: 11px;
+  background: var(--gold);
+  margin-left: 2px;
+  vertical-align: middle;
+  animation: blink .7s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.empty-state {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--fg2);
+}
+.empty-state .icon { font-size: 28px; margin-bottom: 8px; }
+.empty-state p { font-size: 12px; line-height: 1.5; }
+
+/* ── Chat footer & input row ─────────────────────────────────────────────────── */
+.chat-footer {
+  border-top: 1px solid var(--border);
+  padding: 6px 9px 7px;
+  background: var(--bg2);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+/* Save + Summary buttons sit above the text input row */
+.chat-action-row {
+  display: flex;
+  gap: 5px;
+}
+.chat-action-btn {
+  flex: 1;
+  height: 28px;
+  font-size: 8px;
+  padding: 0 8px;
+}
+.input-row { display: flex; gap: 5px; align-items: flex-end; }
+
+/* ── Chat input row ─────────────────────────────────────────────────────────── */
+.chat-input {
+  flex: 1;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-family: 'Exo 2', sans-serif;
+  font-size: 12px;
+  padding: 6px 9px;
+  resize: none;
+  outline: none;
+  min-height: 34px;
+  max-height: 88px;
+  transition: border-color .2s;
+}
+.chat-input:focus { border-color: rgba(255,215,0,.4); }
+.chat-input::placeholder { color: var(--fg2); }
+.send-btn {
+  background: var(--green);
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  cursor: pointer;
+  padding: 0 12px;
+  height: 34px;
+  font-family: 'Orbitron', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  transition: background .15s, transform .1s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 58px;
+}
+.send-btn:hover:not(:disabled) { background: #2ea043; }
+.send-btn.stopping { background: var(--system); }
+.send-btn.stopping:hover { background: #cc3340; }
+.send-btn:active:not(:disabled) { transform: scale(.96); }
+.send-btn:disabled { opacity: .45; cursor: not-allowed; }
+/* Cancel button hidden — send button serves dual purpose now */
+.cancel-btn { display: none !important; }
+
+/* ── Lab widget boxes — no headers, transparent, per-widget heights ─────────── */
+.lab-widget-box {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: transparent;
+}
+.lab-widget-inline + .lab-widget-inline { margin-top: 0; }
+/* Heights tuned to each widget's natural content */
+#wh-tracker      { height: 420px; }
+#wh-bender_god   { height: 300px; }
+#wh-morbo_linda  { height: 340px; }
+#wh-neutral_news { height: 420px; }
+.lab-widget-box .lab-widget-inner { padding: 10px; }
+
+.lab-widget-inline {
+  width: 100%;
+  overflow: hidden;
+}
+/* Make every widget root fill its container */
+.lab-widget-inline #wt-app,
+.lab-widget-box .lab-widget-inner { padding: 10px; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   LAB PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+
+#panel-lab > * { margin-bottom: 10px; }
+#panel-lab {
+  padding: 12px;
+}
+#panel-lab > * { margin-bottom: 10px; }
+#panel-lab > *:last-child { margin-bottom: 4px; }
+#panel-lab::-webkit-scrollbar { width: 4px; }
+#panel-lab::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.lab-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  flex-shrink: 0;
+}
+.lab-header-icon { font-size: 28px; }
+.lab-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  color: var(--prof);
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+.lab-sub {
+  font-size: 9px;
+  color: var(--fg2);
+  font-family: 'Share Tech Mono', monospace;
+  margin-top: 2px;
+}
+.lab-inv-card {
+  background: linear-gradient(145deg, var(--bg2), color-mix(in srgb, var(--bg3) 50%, var(--bg2)));
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--prof);
+  border-radius: 10px;
+  padding: 16px;
+  min-height: 90px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+}
+.lab-inv-placeholder {
+  color: var(--fg2);
+  font-size: 11px;
+  font-style: italic;
+  text-align: center;
+  line-height: 1.6;
+}
+.lab-inv-text {
+  color: var(--prof);
+  font-family: 'Georgia', serif;
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.lab-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--radius);
+  border: none;
+  background: var(--prof);
+  color: #000;
+  font-family: 'Orbitron', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: opacity .2s, transform .1s;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.lab-btn:hover:not(:disabled) { opacity: .88; }
+.lab-btn:active:not(:disabled) { transform: scale(.97); }
+.lab-btn:disabled { opacity: .4; cursor: not-allowed; }
+/* ── News Desk ─────────────────────────────────────────────────────────────── */
+/* Morbo color token — changes in light mode */
+
+/* Anchor header bar */
+/* Stream — no height cap, expands to show both anchors fully */
+/* Each anchor turn gets its own distinct background strip */
+/* ── Hermes Compliance Form — theme-aware ───────────────────────────────────── */
+
+
+.lab-broadcast-btn {
+  background: linear-gradient(135deg, #FF6B35, #E06C75);
+  border: 2px solid #FF6B35;
+  color: white;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 12px rgba(255, 107, 53, 0.4);
+}
+
+.lab-broadcast-send-btn {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-weight: 500;
+}
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+/* labNewsSendRow display managed by JS */
+.lab-doom-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  flex-shrink: 0;
+}
+.lab-doom-label { color: var(--system); letter-spacing: 1px; }
+.lab-doom-track {
+  flex: 1;
+  height: 6px;
+  background: var(--bg3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.lab-doom-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold), var(--system));
+  border-radius: 3px;
+  transition: width .6s ease;
+}
+.lab-doom-pct { color: var(--system); min-width: 30px; text-align: right; }
+.lab-note {
+  font-size: 9px;
+  color: var(--fg3);
+  font-style: italic;
+  text-align: center;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PREVIOUSLY ON PLANET EXPRESS
+   ════════════════════════════════════════════════════════════════════════════ */
+.previously-card {
+  background: linear-gradient(135deg, #0D1117, #161B22);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.previously-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--gold);
+  font-weight: bold;
+}
+.previously-text {
+  font-size: 11px;
+  color: var(--fg2);
+  line-height: 1.7;
+  font-style: italic;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   COLD STORAGE PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+#panel-cold {
+  padding: 0;
+  gap: 0;
+}
+
+#panel-cold .lab-header { flex-shrink: 0; margin: 10px 10px 0; }
+#panel-cold .cold-storage-toolbar { flex-shrink: 0; }
+#coldStorageList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px 12px;
+  min-height: 0;
+}
+#coldStorageList::-webkit-scrollbar { width: 4px; }
+#coldStorageList::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.cold-empty {
+  text-align: center;
+  font-size: 11px;
+  color: var(--fg3);
+  padding: 24px 12px;
+  line-height: 1.7;
+  font-style: italic;
+}
+.cold-pin {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  transition: border-color .2s;
+}
+.cold-pin:hover { border-color: var(--gold); }
+.cold-pin-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  font-weight: bold;
+  margin-bottom: 5px;
+  letter-spacing: .5px;
+}
+.cold-pin-label {
+  color: var(--fg3);
+  font-weight: normal;
+  margin-left: 4px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cold-pin-del,
+.cold-pin-pdf {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg3);
+  cursor: pointer;
+  font-size: 9px;
+  font-family: 'Share Tech Mono', monospace;
+  padding: 2px 7px;
+  letter-spacing: .5px;
+  flex-shrink: 0;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.cold-pin-del:hover  { background: var(--system); color: #fff; border-color: var(--system); }
+.cold-pin-pdf:hover  { background: var(--gold);   color: #000; border-color: var(--gold); }
+
+/* Fade-out on delete */
+.cold-pin.deleting {
+  opacity: 0;
+  transform: translateX(8px);
+  transition: opacity .18s ease, transform .18s ease;
+  pointer-events: none;
+}
+
+/* Delete-all bar at top of cold storage panel */
+.cold-storage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 4px;
+  flex-shrink: 0;
+}
+.cold-del-all-btn {
+  font-size: 9px;
+  font-family: 'Share Tech Mono', monospace;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg3);
+  cursor: pointer;
+  padding: 3px 10px;
+  letter-spacing: .5px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.cold-del-all-btn:hover { background: var(--system); color: #fff; border-color: var(--system); }
+.cold-pin-text {
+  font-size: 11px;
+  color: var(--fg);
+  line-height: 1.6;
+  margin-bottom: 7px;
+}
+.cold-pin-fwd {
+  font-size: 9px;
+  font-family: 'Share Tech Mono', monospace;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg2);
+  padding: 3px 8px;
+  cursor: pointer;
+  letter-spacing: .5px;
+  transition: border-color .15s, color .15s;
+}
+.cold-pin-fwd:hover { border-color: var(--gold); color: var(--gold); }
+.cold-pin-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* Pin button on chat turns */
+.pin-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s;
+  padding: 2px;
+  border-radius: 4px;
+}
+.turn { position: relative; }
+.turn:hover .pin-btn { opacity: 0.6; }
+.pin-btn:hover { opacity: 1 !important; background: var(--bg3); }
+
+/* Episode title under ap-header */
+.ap-ep-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  color: var(--gold);
+  font-style: italic;
+  margin-top: 3px;
+  letter-spacing: .5px;
+}
+.ap-invention-complication {
+  font-size: 10px;
+  color: var(--prof);
+  border-left: 2px solid var(--prof);
+  padding: 4px 8px;
+  margin: 4px 0;
+  font-style: italic;
+  font-family: 'Share Tech Mono', monospace;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   AUTOPILOT PANEL
+   ════════════════════════════════════════════════════════════════════════════ */
+#panel-autopilot {
+  padding: 0;
+  gap: 0;
+}
+
+.ap-card {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.ap-card h3 {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  color: var(--gold);
+  margin-bottom: 5px;
+  letter-spacing: 1px;
+}
+.ap-card p { color: var(--fg2); font-size: 11px; line-height: 1.4; margin-bottom: 10px; }
+.ap-toggle {
+  width: 100%;
+  padding: 8px;
+  border-radius: var(--radius);
+  border: none;
+  font-family: 'Orbitron', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: background .25s, box-shadow .25s;
+}
+/* When ap-toggle sits inside ap-btn-row, let flex control width */
+.ap-btn-row .ap-toggle { width: auto; flex: 1; }
+.ap-toggle.off { background: var(--ap-on); color: #fff; }
+.ap-toggle.off:hover { box-shadow: 0 0 10px rgba(180,83,9,.5); }
+.ap-toggle.on  { background: var(--system); color: #fff; }
+.ap-toggle.on:hover { box-shadow: 0 0 10px rgba(224,108,117,.5); }
+.ap-card-footer {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+/* Top row: Launch (left, matches save width) + EP Summary (right) */
+.ap-btn-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  margin-bottom: 6px;
+}
+.ap-launch-btn {
+  font-size: 9px;
+  letter-spacing: .8px;
+  padding: 9px 8px;
+  white-space: nowrap;
+}
+.ap-ep-summary-btn {
+  flex: 1;
+  padding: 9px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--fg2);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: .5px;
+  cursor: pointer;
+  transition: background .2s, border-color .2s, color .2s;
+  white-space: nowrap;
+  text-align: center;
+}
+.ap-ep-summary-btn:hover { background: var(--bg); border-color: var(--gold); color: var(--fg); }
+/* Save button matches the launch button height */
+.ap-save-btn {
+  flex: 1;
+  font-size: 9px;
+  letter-spacing: .5px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--fg2);
+  font-family: 'Share Tech Mono', monospace;
+  cursor: pointer;
+  transition: opacity .3s ease, background .25s, border-color .25s;
+}
+.ap-save-btn:disabled { opacity: .4; cursor: not-allowed; }
+.ap-narrator-btn {
+  flex-shrink: 0;
+  padding: 0 10px;
+  height: 34px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--fg2);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  letter-spacing: .5px;
+  cursor: pointer;
+  transition: border-color .2s, color .2s, background .2s, opacity .2s;
+  white-space: nowrap;
+}
+.ap-narrator-btn:hover { border-color: var(--gold); color: var(--fg); }
+/* mute-btn[data-muted="1"] dims the label to signal muted state */
+.mute-btn[data-muted="1"] { border-color: var(--system); color: var(--system); }
+#ap-stream {
+  flex: 1;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 10px 11px;
+  font-size: var(--chat-font-size);
+  line-height: 1.6;
+  min-height: 0;
+}
+#ap-stream::-webkit-scrollbar { width: 4px; }
+#ap-stream::-webkit-scrollbar-thumb { background: var(--border); }
+.ap-header {
+  text-align: center;
+  font-family: 'Orbitron', monospace;
+  font-size: 9px;
+  color: var(--ap-on);
+  padding: 5px;
+  border: 1px dashed var(--ap-on);
+  border-radius: var(--radius);
+  letter-spacing: 1px;
+  background: rgba(180,83,9,.07);
+  margin-bottom: 4px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   SETTINGS PANEL  — the main new section
+   ════════════════════════════════════════════════════════════════════════════ */
+#panel-settings {
+  overflow-x: hidden;
+  padding: 10px 10px 20px;
+  min-height: 0;
+}
+#panel-settings .s-section,
+#panel-settings > div { margin-bottom: 10px; }
+#panel-settings::-webkit-scrollbar { width: 4px; }
+#panel-settings::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.s-section {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.s-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 8px;
+  color: var(--fg2);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* ── Speed slider ───────────────────────────────────────────────────────────── */
+.speed-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.speed-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.speed-label {
+  font-size: 11px;
+  color: var(--fg2);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.speed-value {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: var(--gold);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  min-width: 52px;
+  text-align: center;
+}
+.speed-marks {
+  display: flex;
+  justify-content: space-between;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--fg3);
+  padding: 0 2px;
+}
+input[type=range].speed-slider {
+  width: 100%;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg3);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  accent-color: var(--gold);
+}
+input[type=range].speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 4px rgba(255,215,0,.4);
+  cursor: pointer;
+  transition: box-shadow .2s;
+}
+input[type=range].speed-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 8px rgba(255,215,0,.7);
+}
+input[type=range].speed-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--gold) var(--pct, 50%), var(--bg3) var(--pct, 50%));
+  border-radius: 2px;
+  height: 4px;
+}
+
+/* ── Font size slider — reuses .speed-* classes, no extra CSS needed ─────────── */
+/* The slider shares all visual styles with the speed slider via .speed-slider   */
+
+/* ── Cast toggles ───────────────────────────────────────────────────────────── */
+.cast-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cast-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  transition: border-color .2s, background .2s;
+}
+.cast-row.active {
+  border-color: var(--char-color, var(--border));
+  background: color-mix(in srgb, var(--char-color, transparent) 8%, var(--bg3));
+}
+.cast-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cast-icon { font-size: 16px; line-height: 1; }
+.cast-name {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.cast-role {
+  font-size: 9px;
+  color: var(--fg2);
+  font-family: 'Exo 2', sans-serif;
+}
+
+/* ── Pill toggle switch ─────────────────────────────────────────────────────── */
+.pill-toggle {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.pill-toggle input {
+  opacity: 0;
+  width: 0; height: 0;
+  position: absolute;
+}
+.pill-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background .25s, border-color .25s;
+}
+.pill-track::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--fg3);
+  transition: transform .25s, background .25s;
+}
+.pill-toggle input:checked + .pill-track {
+  background: color-mix(in srgb, var(--char-color, var(--green)) 20%, var(--bg2));
+  border-color: var(--char-color, var(--green));
+}
+.pill-toggle input:checked + .pill-track::after {
+  transform: translateX(18px);
+  background: var(--char-color, var(--green));
+}
+.cast-row.muted {
+  opacity: .45;
+  filter: grayscale(.6);
+}
+
+/* ── Settings fields ────────────────────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field label { font-size: 10px; color: var(--fg2); }
+.field input, .field select {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  padding: 5px 8px;
+  outline: none;
+  transition: border-color .2s;
+}
+.field input:focus, .field select:focus { border-color: rgba(255,215,0,.4); }
+.field input[type=password] { letter-spacing: 2px; }
+.save-config-btn {
+  padding: 8px;
+  border-radius: var(--radius);
+  border: none;
+  background: var(--green);
+  color: #fff;
+  font-family: 'Orbitron', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: background .2s;
+}
+.save-config-btn:hover { background: #2ea043; }
+.settings-msg {
+  font-size: 10px;
+  text-align: center;
+  min-height: 15px;
+}
+.server-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--fg2);
+}
+
+/* ── Special narrative bubbles ───────────────────────────────────────────── */
+.special-bubble {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin: 3px 0;
+  animation: fadein .2s ease;
+}
+.special-bubble.cold-open {
+  color: var(--ap-on);
+  border-left: 2px solid var(--ap-on);
+  font-style: italic;
+  background: rgba(180,83,9,.06);
+}
+.special-bubble.roast {
+  color: var(--bender);
+  border-left: 2px solid var(--bender);
+  font-weight: 700;
+  background: rgba(171,178,191,.06);
+}
+.special-bubble.signoff {
+  color: var(--leela);
+  text-align: center;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  padding: 5px;
+  font-style: italic;
+}
+.special-bubble.guest-announce {
+  color: var(--bubble-color, var(--gold));
+  border: 1px solid var(--bubble-color, var(--gold));
+  text-align: center;
+  background: color-mix(in srgb, var(--bubble-color, var(--gold)) 8%, transparent);
+  font-weight: 700;
+}
+.special-bubble.scheme {
+  color: var(--bender);
+  font-style: italic;
+  opacity: .75;
+}
+
+/* ── Autopilot narrative elements ────────────────────────────────────────── */
+.ap-cold-open {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  color: var(--ap-on);
+  font-style: italic;
+  padding: 3px 6px;
+  border-left: 2px solid var(--ap-on);
+  margin: 4px 0;
+  background: rgba(180,83,9,.05);
+}
+.ap-signoff {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  color: var(--leela);
+  text-align: center;
+  padding: 4px;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  margin: 5px 0;
+  font-style: italic;
+}
+.ap-scheme {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  color: var(--bender);
+  font-style: italic;
+  padding: 2px 6px;
+  opacity: .7;
+}
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  padding: 3px 10px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--fg2);
+  letter-spacing: .5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Narrator and episode structure ──────────────────────────────────────────── */
+.ap-episode-end {
+  text-align: center;
+  font-family: 'Orbitron', monospace;
+  font-size: 8px;
+  letter-spacing: 2px;
+  color: var(--fg3);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 6px;
+  margin: 10px 0 14px;
+}
+.ap-guest-announce {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  color: var(--gc, var(--gold));
+  border: 1px solid var(--gc, var(--gold));
+  border-radius: 4px;
+  padding: 3px 8px;
+  margin: 4px 0;
+  background: color-mix(in srgb, var(--gc, var(--gold)) 8%, transparent);
+  text-align: center;
+}
+
+/* ── PDF download button ─────────────────────────────────────────────────────── */
+.pdf-btn {
+  background: transparent;
+  border: 1px solid var(--gold);
+  border-radius: var(--radius);
+  color: var(--gold);
+  cursor: pointer;
+  padding: 0 11px;
+  height: 34px;
+  font-family: 'Orbitron', monospace;
+  font-size: 8px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background .15s, color .15s, box-shadow .15s;
+}
+.pdf-btn:hover:not(:disabled) {
+  background: rgba(255,215,0,.12);
+  box-shadow: 0 0 8px rgba(255,215,0,.3);
+}
+.pdf-btn:active:not(:disabled) { transform: scale(.96); }
+.pdf-btn:disabled { opacity: .3; cursor: not-allowed; border-color: var(--border); color: var(--fg3); }
+
+/* ── Spinner ────────────────────────────────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border: 2px solid var(--border);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  vertical-align: middle;
+  margin-right: 3px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Lab section cards — consistent, theme-aware ────────────────────────────── */
+.lab-section-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+  transition: background .25s, border-color .25s;
+}
+.lab-section-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--fg2);
+  margin-bottom: 2px;
+}
+
+/* ── Affirmation widget embed ───────────────────────────────────────────────── */
+.lab-widget-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: background .25s, border-color .25s;
+}
+.lab-widget-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  color: var(--fg2);
+  letter-spacing: 2px;
+  transition: background .25s, border-color .25s;
+}
+.lab-widget-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--gold) 50%, transparent);
+  flex-shrink: 0;
+}
+.lab-widget-inner {
+  padding: 14px;
+}
+.lab-widget-char {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.lab-widget-avatar {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: border-color .2s;
+}
+.lab-widget-avatar:hover { border-color: var(--gold); }
+.lab-widget-char-name {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--gold);
+  letter-spacing: 1px;
+  line-height: 1.2;
+}
+.lab-widget-char-sub {
+  font-size: 8px;
+  color: var(--fg3);
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+.lab-widget-quote {
+  font-style: italic;
+  font-size: 11px;
+  color: var(--fg);
+  line-height: 1.65;
+  border-left: 2px solid var(--gold);
+  padding-left: 9px;
+  margin-bottom: 10px;
+  min-height: 44px;
+  transition: color .25s;
+}
+.lab-widget-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.lab-widget-controls { display: flex; gap: 5px; }
+.lab-widget-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-family: 'Share Tech Mono', monospace;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--fg2);
+  cursor: pointer;
+  letter-spacing: .5px;
+  transition: border-color .2s, color .2s, background .2s;
+}
+.lab-widget-btn:hover { border-color: var(--gold); color: var(--fg); }
+.lab-widget-btn.paused { border-color: var(--system); color: var(--system); }
+.lab-widget-meta {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--fg3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lab-widget-status-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+  flex-shrink: 0;
+  transition: background .25s;
+}
+
+/* ── Spoiler / collapsible ──────────────────────────────────────────────────── */
+.lab-spoiler {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-color .2s;
+}
+.lab-spoiler:hover { border-color: color-mix(in srgb, var(--gold) 40%, var(--border)); }
+.lab-spoiler-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  background: var(--bg2);
+  border: none;
+  cursor: pointer;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--fg2);
+  transition: background .2s, color .2s;
+}
+.lab-spoiler-toggle:hover { background: var(--bg3); color: var(--fg); }
+.lab-spoiler-arrow {
+  font-size: 10px;
+  transition: transform .25s;
+}
+.lab-spoiler[open] > .lab-spoiler-toggle .lab-spoiler-arrow { transform: rotate(90deg); }
+.lab-spoiler-body {
+  padding: 12px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  transition: background .25s;
+}
+
+/* ── Legal section ───────────────────────────────────────────────────────────── */
+.legal-section { gap: 8px; }
+.legal-badge {
+  display: inline-block;
+  background: var(--ap-on);
+  color: #fff;
+  font-family: 'Orbitron', monospace;
+  font-size: 7px;
+  letter-spacing: 1.5px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  align-self: flex-start;
+}
+.legal-body {
+  font-size: 9.5px;
+  color: var(--fg2);
+  line-height: 1.6;
+  margin: 0;
+}
+.legal-body strong { color: var(--fg); font-weight: 600; }
+.legal-footer {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--fg3);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  line-height: 1.5;
+}
+
+/* ── Welcome Card ──────────────────────────────────────────────────────────── */
+.welcome-card {
+  position: relative;
+  /* No margin — chatlog padding handles spacing */
+  padding: 14px 14px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--char-color, var(--gold));
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--char-color, var(--gold)) 8%, var(--bg2)) 0%,
+    var(--bg2) 100%);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--char-color, var(--gold)) 15%, transparent);
+  animation: welcome-in .35s cubic-bezier(.22,1,.36,1);
+  box-sizing: border-box;
+  /* width:0 + min-width:0 pattern: lets flex-child shrink below content size */
+  width: 0;
+  min-width: 100%;
+  overflow: hidden;
+}
+@keyframes welcome-in {
+  from { opacity:0; transform:translateY(-8px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+.welcome-dismiss {
+  position: absolute;
+  top: 8px; right: 8px;
+  background: none;
+  border: none;
+  color: var(--fg3);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+.welcome-dismiss:hover { color: var(--fg); background: var(--bg3); }
+
+.welcome-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.welcome-icon {
+  font-size: 32px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px var(--char-color, var(--gold)));
+  flex-shrink: 0;
+}
+.welcome-name-block { display: flex; flex-direction: column; gap: 3px; }
+.welcome-char-name {
+  font-family: 'Orbitron', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--char-color, var(--gold));
+  letter-spacing: .5px;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--char-color, var(--gold)) 50%, transparent);
+}
+.welcome-counter {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--fg3);
+  letter-spacing: 1px;
+}
+.welcome-counter-num {
+  color: var(--char-color, var(--gold));
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.welcome-quote {
+  font-family: 'Exo 2', sans-serif;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--fg2);
+  line-height: 1.6;
+  border-left: 2px solid var(--char-color, var(--gold));
+  padding-left: 9px;
+  margin-bottom: 12px;
+}
+
+/* ── Accessories ───────────────────────────────────────────────────────────── */
+.welcome-acc-section { }
+.welcome-acc-title {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--fg3);
+  letter-spacing: 2px;
+  margin-bottom: 7px;
+}
+.welcome-acc-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.welcome-acc-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 3px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  cursor: default;
+  transition: border-color .2s, background .2s, transform .2s;
+  text-align: center;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.welcome-acc-item.unlocked {
+  border-color: color-mix(in srgb, var(--char-color, var(--gold)) 40%, var(--border));
+  background: color-mix(in srgb, var(--char-color, var(--gold)) 6%, var(--bg3));
+}
+.welcome-acc-item.unlocked:hover {
+  border-color: var(--char-color, var(--gold));
+  transform: translateY(-1px);
+}
+.welcome-acc-item.locked {
+  opacity: .38;
+  filter: grayscale(1);
+}
+.welcome-acc-item.just-unlocked {
+  border-color: var(--gold);
+  animation: unlock-pop .5s cubic-bezier(.22,1,.36,1);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--gold) 40%, transparent);
+}
+@keyframes unlock-pop {
+  0%   { transform: scale(.85); opacity:.5; }
+  60%  { transform: scale(1.08); }
+  100% { transform: scale(1);   opacity:1; }
+}
+.welcome-acc-icon  { font-size: 16px; line-height: 1; max-width: 100%; display: block; }
+.welcome-acc-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 7px;
+  color: var(--fg2);
+  line-height: 1.3;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+.welcome-acc-item.locked .welcome-acc-label { color: var(--fg3); }
+
+/* ── Welcome card: title row with mechanic explanation ─────────────────────── */
+.welcome-acc-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  flex-wrap: wrap;
+}
+.welcome-acc-note {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 7px;
+  color: var(--char-color, var(--gold));
+  opacity: .75;
+  line-height: 1.4;
+  text-align: right;
+  flex: 1;
+  min-width: 100px;
+}
+
+/* ── Crew Progress — Settings panel ─────────────────────────────────────────── */
+.progress-summary {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-family: 'Share Tech Mono', monospace;
+}
+.progress-count {
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--gold);
+  font-family: 'Orbitron', monospace;
+}
+.progress-count-label {
+  font-size: 9px;
+  color: var(--fg2);
+  letter-spacing: 1.5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.progress-count-sub {
+  font-size: 9px;
+  color: var(--fg3);
+  margin-top: 3px;
+  font-style: italic;
+  font-family: 'Exo 2', sans-serif;
+}
+
+.progress-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.progress-row:last-child { border-bottom: none; }
+
+.progress-char-hdr {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+}
+.progress-char-icon { font-size: 16px; line-height: 1; }
+.progress-char-name {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--char-color, var(--fg));
+  flex: 1;
+}
+.progress-char-tally {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  color: var(--fg3);
+  letter-spacing: .5px;
+}
+
+.progress-bar-wrap {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width .4s ease;
+  opacity: .85;
+}
+
+.progress-acc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.progress-acc-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 3px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  text-align: center;
+  cursor: default;
+  transition: border-color .15s;
+}
+.progress-acc-cell.p-unlocked {
+  border-color: color-mix(in srgb, var(--char-color, var(--gold)) 45%, var(--border));
+  background: color-mix(in srgb, var(--char-color, var(--gold)) 6%, var(--bg3));
+}
+.progress-acc-cell.p-unlocked:hover { border-color: var(--char-color, var(--gold)); }
+.progress-acc-cell.p-locked { opacity: .35; filter: grayscale(1); }
+.p-acc-icon  { font-size: 15px; line-height: 1; }
+.p-acc-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 6.5px;
+  color: var(--fg2);
+  line-height: 1.3;
+  word-break: break-word;
+}
+.progress-acc-cell.p-locked .p-acc-label { color: var(--fg3); }
+
+.progress-next {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--char-color, var(--gold));
+  opacity: .8;
+  letter-spacing: .3px;
+}
+/* ── lab-widget-dot — theme-safe gold ──────────────────────────────────────── */
+.lab-widget-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--ap-on);   /* amber — readable on both light and dark bg */
+  flex-shrink: 0;
+}
+
+/* ── apPdfBtn — smooth opacity transition so enable feels intentional ────────── */
+.ap-toggle.pdf-btn {
+  transition: opacity .3s ease, background .25s, box-shadow .25s;
+}
+
+/* ── Spoiler arrow — ease-out so it doesn't feel mechanical ─────────────────── */
+.lab-spoiler-arrow, .crew-progress-arrow {
+  transition: transform .25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── ap-stream turn body — cap runaway LLM outputs ──────────────────────────── */
+#ap-stream .ap-turn-body { overflow-y: visible; }
+
+/* ── Status bar ──────────────────────────────────────────────────────────────── */
+.statusbar {
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  padding: 3px 10px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 8px;
+  color: var(--fg2);
+  letter-spacing: .5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── First-run onboarding card ────────────────────────────────────────────── */
+.first-run-card {
+  margin: 20px 12px;
+  padding: 18px 20px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  background: rgba(255,215,0,.04);
+  text-align: center;
+}
+.first-run-title {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+.first-run-card p {
+  font-size: 11px;
+  color: var(--fg2);
+  line-height: 1.7;
+  margin-bottom: 14px;
+}
+.first-run-card p strong { color: var(--fg); }
+.first-run-settings-btn {
+  background: transparent;
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 7px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s;
+}
+.first-run-settings-btn:hover { background: rgba(255,215,0,.08); }
+
+/* ── Chaos banners ────────────────────────────────────────────────────────── */
+.chaos-banner {
+  background: var(--system);
+  color: #fff;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-align: center;
+  padding: 6px 12px;
+  margin: 0 0 4px;
+  border-radius: 4px;
+  display: none;
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="logo">
+      <div class="logo-ship">🚀</div>
+      <div>
+        <div class="logo-title">PLANET EXPRESS</div>
+        <div class="logo-sub">Like watching Futurama — you pick the topic</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-dot" id="statusDot"></div>
+      <button class="icon-btn" id="themeBtn" title="Toggle light/dark mode" aria-label="Toggle theme">🌙</button>
+      <button class="icon-btn" id="refreshBtn" title="Check server">⟳</button>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" data-tab="chat"     title="Chat with the crew">💬 CHAT</div>
+    <div class="tab" data-tab="autopilot"       title="Crew autopilot — hands-free episode mode">🤖 AUTO</div>
+    <div class="tab" data-tab="lab"             title="Invention lab, news desk & affirmations">🧪 LAB</div>
+    <div class="tab" data-tab="cold"            title="Saved crew highlights">📌 SAVED</div>
+    <div class="tab" data-tab="settings"        title="Voices, cast, provider & data settings">⚙️ SETTINGS</div>
+  </div>
+
+  <!-- NOT READY -->
+  <div class="not-ready-banner" id="notReadyBanner">
+    ⚠️ Enter your API key in ⚙️ Settings to start chatting with the crew.
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       CHAT PANEL
+       ══════════════════════════════════════════════════════════ -->
+  <div class="panel active" id="panel-chat">
+    <div id="chatlog">
+      <div class="first-run-card" id="firstRunCard">
+        <div class="first-run-title">Good news, everyone!</div>
+        <p>Go to <strong>⚙️ Settings</strong>, paste your free Groq API key, and press <strong>Save &amp; Connect</strong>.</p>
+        <button class="first-run-settings-btn" id="firstRunSettingsBtn">→ Open Settings</button>
+      </div>
+    </div>
+    <div class="chat-footer">
+      <div class="chaos-banner" id="chaosBanner">💀 CHAOS MODE ACTIVE — crew behaviour is unhinged</div>
+      <div class="chat-action-row">
+        <button class="pdf-btn chat-action-btn" id="chatSavePin" title="Save chat to Cold Storage" disabled>📌 SAVE</button>
+        <button class="pdf-btn chat-action-btn" id="chatSummaryBtn" title="AI Summary → Cold Storage" disabled>📋 SUMMARY</button>
+      </div>
+      <div class="input-row">
+        <textarea class="chat-input" id="chatInput" name="chat" rows="1"
+          autocomplete="off" spellcheck="true"
+          placeholder="What should the crew discuss?"></textarea>
+        <button class="send-btn" id="sendBtn" disabled>SEND</button>
+        <button class="chat-stop-btn" id="chatStopBtn" title="Stop current response"
+                style="display:none;align-items:center;justify-content:center;
+                       width:34px;height:34px;border-radius:var(--radius);
+                       border:1px solid var(--system);background:transparent;
+                       color:var(--system);cursor:pointer;font-size:14px;
+                       flex-shrink:0;transition:background .15s;">⏹</button>
+        <button class="chat-mute-btn icon-btn" id="chatMuteBtn" title="Mute voices"
+                style="flex-shrink:0;width:34px;height:34px;">🔊</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       AUTOPILOT PANEL
+       ══════════════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-autopilot">
+    <div class="ap-card">
+      <h3>🤖 CREW AUTOPILOT</h3>
+      <p>The crew picks a Futurama topic and runs a full sitcom episode — hands free.</p>
+      <div class="ap-btn-row">
+        <button class="ap-toggle off ap-launch-btn" id="apToggle">🚀 LAUNCH AUTOPILOT</button>
+        <button class="ap-ep-summary-btn" id="apEpSummaryBtn"
+          title="AI Episode Summary → Cold Storage">📋 EP SUMMARY</button>
+      </div>
+      <div class="ap-card-footer">
+        <button class="pdf-btn ap-save-btn" id="apPdfBtn" disabled title="Save transcript to Cold Storage">
+          📌 SAVE
+        </button>
+        <button class="icon-btn" id="apPauseBtn" title="Pause / Resume episode"
+                style="display:none;width:34px;height:34px;font-size:14px;flex-shrink:0">⏸</button>
+        <button class="mute-btn ap-narrator-btn" title="Mute/unmute crew voices">
+          🔊 ON
+        </button>
+      </div>
+    </div>
+    <div class="chaos-banner" id="chaosBannerAp">💀 CHAOS MODE ACTIVE — crew behaviour is unhinged</div>
+    <div id="ap-stream">
+      <div class="empty-state" style="padding:8px">
+        <p style="font-size:11px">Crew is standing by…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       LAB PANEL v3.0
+       ══════════════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-lab">
+
+    <!-- ── PROFESSOR'S INVENTION ─────────────────────────────────── -->
+    <div class="lab-inv-card" id="labInvCard">
+      <div class="lab-inv-placeholder" id="labInvPlaceholder">
+        The Professor is in his lab…<br>Click below to see today's invention!
+      </div>
+      <div class="lab-inv-text" id="labInvText" style="display:none"></div>
+    </div>
+
+    <button class="lab-btn" id="labInventBtn" disabled>⚗️ GENERATE NEW INVENTION</button>
+
+    <button class="lab-btn lab-discuss-btn" id="labDiscussBtn" disabled
+            style="background:var(--leela);color:#fff;margin-top:0">
+      💬 DISCUSS WITH THE CREW
+    </button>
+
+    <div class="lab-doom-bar" id="labDoomBar" style="display:none">
+      <span class="lab-doom-label">DOOM LEVEL</span>
+      <div class="lab-doom-track"><div class="lab-doom-fill" id="labDoomFill"></div></div>
+      <span class="lab-doom-pct" id="labDoomPct">??%</span>
+    </div>
+
+    <div class="lab-note">The invention will be referenced by the crew in your next chat.</div>
+
+    <!-- ── LOUNGE WIDGETS — all live, stacked, always active ──────────── -->
+    <!-- Each widget loads into a shadow-DOM host so their CSS/IDs never clash -->
+
+        <div class="lab-widget-box">
+      <div class="lab-widget-inner">
+        <div class="lab-widget-char">
+          <div class="lab-widget-avatar" id="widgetAvatar" title="Click for new quote">🍕</div>
+          <div>
+            <div class="lab-widget-char-name" id="widgetCharName">PHILIP J. FRY</div>
+            <div class="lab-widget-char-sub" id="widgetCharSub">The Zen of Simple Minds</div>
+          </div>
+        </div>
+        <div class="lab-widget-quote" id="widgetQuote">Loading crew wisdom…</div>
+        <div class="lab-widget-footer">
+          <div class="lab-widget-controls">
+            <button class="lab-widget-btn" id="widgetNextBtn">▶ NEXT</button>
+            <button class="lab-widget-btn" id="widgetPauseBtn">⏸ PAUSE</button>
+          </div>
+          <div class="lab-widget-meta">
+            <div class="lab-widget-status-dot" id="widgetStatusDot"></div>
+            <span id="widgetStatusText">CYCLING</span>
+            <span style="color:var(--fg3)">•</span>
+            <span id="widgetQuoteId">#001</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lab-widget-box">
+      <div class="lab-widget-inline">
+<style>
+    #wml-mb-root{font-family:var(--font-sans);background:#1a1a2e;border-radius:8px;overflow:hidden;width:100%;max-width:340px;box-sizing:border-box}
+  #wml-mb-ticker{background:#cc0000;color:#fff;font-size:9px;font-weight:600;padding:3px 8px;letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+  #wml-mb-ticker .live{background:#fff;color:#cc0000;font-size:8px;font-weight:700;padding:1px 4px;border-radius:2px}
+  #wml-mb-progress{height:2px;background:#1a1a3a}
+  #wml-mb-prog-bar{height:100%;background:#cc0000;transition:width .3s}
+  #wml-mb-set{display:flex;height:148px;position:relative;background:#0d1b2a}
+  #wml-mb-morbo-area,#wml-mb-linda-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;position:relative;z-index:2;transition:opacity .3s,transform .3s}
+  #wml-mb-desk{position:absolute;bottom:0;left:0;right:0;height:26px;background:#1a3a5c;border-top:2px solid #2a5f9c;z-index:3;display:flex;align-items:center;justify-content:center}
+  #wml-mb-desk-logo{font-family:'Oswald',var(--font-sans);color:#f0b429;font-size:10px;letter-spacing:2px}
+  #wml-mb-script{background:#0f0f1a;padding:10px 12px;min-height:68px;border-top:1px solid #2a2a4a}
+  #wml-mb-speaker{font-size:9px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;margin-bottom:4px}
+  #wml-mb-line{font-size:11px;line-height:1.5;color:#e8e8e8;font-style:italic}
+  #wml-mb-controls{background:#0d0d1a;padding:7px 10px;display:flex;align-items:center;gap:6px;border-top:1px solid #1a1a3a}
+  #wml-mb-copy{font-size:8px;color:#444;margin-left:auto;letter-spacing:.02em}
+  button.mb-btn{background:transparent;border:.5px solid #2a5f9c;border-radius:6px;color:#7ab3e8;font-size:10px;padding:4px 9px;cursor:pointer}
+  button.mb-btn:hover{background:#1a3a5c}
+  button.mb-btn.active{background:#1a3a5c;color:#f0b429;border-color:#f0b429}
+  .nameplate{position:absolute;bottom:28px;font-size:7px;text-align:center;z-index:4;font-weight:600;letter-spacing:.05em;line-height:1.3;color:#7ab3e8;white-space:nowrap}
+</style>
+
+<div id="wml-mb-root">
+  <div id="wml-mb-ticker"><span class="live">LIVE</span><span id="wml-mb-headline">DOOM REPORT — v2 NEWS</span></div>
+  <div id="wml-mb-progress"><div id="wml-mb-prog-bar" style="width:1%"></div></div>
+  <div id="wml-mb-set">
+    <svg style="position:absolute;inset:0;width:100%;height:100%;z-index:1" id="wml-mb-stars-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+
+    <!-- MORBO -->
+    <div id="wml-mb-morbo-area">
+      <svg width="68" height="118" viewBox="0 0 68 118" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <!-- suit body -->
+        <rect x="14" y="72" width="40" height="46" rx="3" fill="#1a3a6a"/>
+        <rect x="4" y="76" width="12" height="32" rx="3" fill="#1a3a6a"/>
+        <rect x="52" y="76" width="12" height="32" rx="3" fill="#1a3a6a"/>
+        <!-- tie -->
+        <polygon points="34,73 30,80 34,95 38,80" fill="#cc0000"/>
+        <!-- shirt collar -->
+        <polygon points="26,72 34,80 42,72 38,72 34,76 30,72" fill="#fff"/>
+        <!-- legs -->
+        <rect x="18" y="112" width="12" height="6" rx="2" fill="#0d2040"/>
+        <rect x="38" y="112" width="12" height="6" rx="2" fill="#0d2040"/>
+        <!-- MORBO HEAD - large green alien -->
+        <!-- main head bulge -->
+        <ellipse cx="34" cy="48" rx="26" ry="28" fill="#3d8c3d"/>
+        <!-- cranial dome top -->
+        <ellipse cx="34" cy="28" rx="22" ry="18" fill="#4aaa4a"/>
+        <!-- brow ridge -->
+        <rect x="10" y="44" width="48" height="8" rx="4" fill="#2d6e2d"/>
+        <!-- vein on forehead -->
+        <path d="M26 32 Q30 26 34 30 Q38 26 42 32" stroke="#1a4a1a" stroke-width="1.5" fill="none"/>
+        <!-- eyes - large with anger wrinkles -->
+        <ellipse cx="22" cy="52" rx="9" ry="10" fill="#fff"/>
+        <ellipse cx="46" cy="52" rx="9" ry="10" fill="#fff"/>
+        <!-- angry eyebrows -->
+        <path d="M13 44 Q22 40 31 44" stroke="#1a4a1a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <path d="M37 44 Q46 40 55 44" stroke="#1a4a1a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <!-- pupils -->
+        <ellipse cx="22" cy="53" rx="6" ry="7" fill="#8b0000"/>
+        <ellipse cx="46" cy="53" rx="6" ry="7" fill="#8b0000"/>
+        <ellipse cx="22" cy="53" rx="3" ry="3.5" fill="#1a0000"/>
+        <ellipse cx="46" cy="53" rx="3" ry="3.5" fill="#1a0000"/>
+        <!-- highlight dots -->
+        <circle cx="24" cy="50" r="1.5" fill="#fff" opacity=".7"/>
+        <circle cx="48" cy="50" r="1.5" fill="#fff" opacity=".7"/>
+        <!-- nose slits -->
+        <ellipse cx="30" cy="62" rx="2.5" ry="1.5" fill="#2d6e2d"/>
+        <ellipse cx="38" cy="62" rx="2.5" ry="1.5" fill="#2d6e2d"/>
+        <!-- angry mouth -->
+        <path d="M22 68 Q34 64 46 68" stroke="#1a4a1a" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <!-- head ridges/tentacle bumps on top -->
+        <ellipse cx="20" cy="18" rx="6" ry="8" fill="#3d8c3d"/>
+        <ellipse cx="34" cy="12" rx="7" ry="9" fill="#4aaa4a"/>
+        <ellipse cx="48" cy="18" rx="6" ry="8" fill="#3d8c3d"/>
+        <!-- neck -->
+        <rect x="26" y="68" width="16" height="8" rx="2" fill="#3d8c3d"/>
+      </svg>
+      <div class="nameplate" style="left:0;right:50%">MORBO<br><span style="color:#5588aa;font-size:7px">ANCHOR</span></div>
+    </div>
+
+    <!-- FAKE TV SCREEN in center -->
+    <div style="position:absolute;left:50%;transform:translateX(-50%);top:12px;z-index:5;width:62px">
+      <svg width="62" height="50" viewBox="0 0 62 50" xmlns="http://www.w3.org/2000/svg">
+        <!-- TV frame -->
+        <rect x="0" y="0" width="62" height="46" rx="4" fill="#111" stroke="#444" stroke-width="1.5"/>
+        <rect x="3" y="3" width="56" height="38" rx="2" fill="#0a1a0a"/>
+        <!-- screen glow -->
+        <rect x="3" y="3" width="56" height="38" rx="2" fill="#1a3010" opacity=".6"/>
+        <!-- windmill scene - sky -->
+        <rect x="3" y="3" width="56" height="24" rx="2" fill="#1a2a4a"/>
+        <!-- ground -->
+        <rect x="3" y="27" width="56" height="14" fill="#1a3010"/>
+        <!-- horizon -->
+        <line x1="3" y1="27" x2="59" y2="27" stroke="#2a5a20" stroke-width="1"/>
+        <!-- windmill tower -->
+        <polygon points="29,27 33,27 32,10 30,10" fill="#ccc"/>
+        <!-- windmill body hub -->
+        <circle cx="31" cy="10" r="2.5" fill="#aaa"/>
+        <!-- windmill blades (animated) -->
+        <g id="wml-mb-blades" style="transform-origin:31px 10px;transform:rotate(0deg)">
+          <rect x="30" y="2" width="2" height="9" rx="1" fill="#ddd"/>
+          <rect x="30" y="10" width="2" height="9" rx="1" fill="#bbb" transform="rotate(120,31,10)"/>
+          <rect x="30" y="10" width="2" height="9" rx="1" fill="#ccc" transform="rotate(240,31,10)"/>
+        </g>
+        <!-- small clouds -->
+        <ellipse cx="18" cy="9" rx="6" ry="3" fill="#2a3a5a"/>
+        <ellipse cx="46" cy="14" rx="5" ry="2.5" fill="#2a3a5a"/>
+        <!-- scanlines -->
+        <rect x="3" y="3" width="56" height="38" rx="2" fill="url(#wml-scanlines)" opacity=".15"/>
+        <!-- TV stand -->
+        <rect x="27" y="46" width="8" height="4" fill="#222"/>
+        <rect x="22" y="48" width="18" height="2" rx="1" fill="#333"/>
+        <defs>
+          <pattern id="wml-scanlines" width="1" height="3" patternUnits="userSpaceOnUse">
+            <rect width="1" height="1" fill="#000" y="0"/>
+            <rect width="1" height="2" fill="transparent" y="1"/>
+          </pattern>
+        </defs>
+      </svg>
+    </div>
+
+    <!-- LINDA -->
+    <div id="wml-mb-linda-area">
+      <svg width="68" height="118" viewBox="0 0 68 118" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <!-- body / blazer -->
+        <rect x="14" y="72" width="40" height="46" rx="3" fill="#b03060"/>
+        <rect x="4" y="78" width="12" height="28" rx="3" fill="#b03060"/>
+        <rect x="52" y="78" width="12" height="28" rx="3" fill="#b03060"/>
+        <!-- blazer lapels -->
+        <polygon points="22,72 34,84 34,72" fill="#c8406a"/>
+        <polygon points="46,72 34,84 34,72" fill="#a82050"/>
+        <!-- pearl necklace -->
+        <ellipse cx="34" cy="72" rx="7" ry="1.5" fill="none" stroke="#f5e6c8" stroke-width="1.5" stroke-dasharray="2,1.5"/>
+        <!-- legs -->
+        <rect x="18" y="112" width="12" height="6" rx="2" fill="#801040"/>
+        <rect x="38" y="112" width="12" height="6" rx="2" fill="#801040"/>
+        <!-- LINDA HEAD -->
+        <!-- neck -->
+        <rect x="27" y="64" width="14" height="10" rx="2" fill="#f0c090"/>
+        <!-- face shape - rounder/feminine -->
+        <ellipse cx="34" cy="48" rx="18" ry="20" fill="#f0c090"/>
+        <!-- hair - big anchor-woman hair -->
+        <ellipse cx="34" cy="30" rx="22" ry="16" fill="#8b4510"/>
+        <!-- hair sides -->
+        <ellipse cx="14" cy="42" rx="8" ry="14" fill="#8b4510"/>
+        <ellipse cx="54" cy="42" rx="8" ry="14" fill="#8b4510"/>
+        <!-- hair volume top -->
+        <ellipse cx="34" cy="22" rx="18" ry="12" fill="#a05018"/>
+        <!-- face overlay on hair -->
+        <ellipse cx="34" cy="50" rx="15" ry="18" fill="#f0c090"/>
+        <!-- eyebrows - well shaped -->
+        <path d="M24 38 Q29 35 34 37" stroke="#5a2a0a" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <path d="M34 37 Q39 35 44 38" stroke="#5a2a0a" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <!-- eyes - big with lashes -->
+        <ellipse cx="27" cy="44" rx="5" ry="5.5" fill="#fff"/>
+        <ellipse cx="41" cy="44" rx="5" ry="5.5" fill="#fff"/>
+        <!-- lash lines -->
+        <path d="M22 41 Q27 38 32 41" stroke="#2a1a0a" stroke-width="1.2" fill="none"/>
+        <path d="M36 41 Q41 38 46 41" stroke="#2a1a0a" stroke-width="1.2" fill="none"/>
+        <!-- irises -->
+        <ellipse cx="27" cy="45" rx="3.2" ry="3.5" fill="#4a6a90"/>
+        <ellipse cx="41" cy="45" rx="3.2" ry="3.5" fill="#4a6a90"/>
+        <ellipse cx="27" cy="45" rx="1.5" ry="1.8" fill="#1a0a00"/>
+        <ellipse cx="41" cy="45" rx="1.5" ry="1.8" fill="#1a0a00"/>
+        <circle cx="28" cy="43.5" r="1" fill="#fff" opacity=".8"/>
+        <circle cx="42" cy="43.5" r="1" fill="#fff" opacity=".8"/>
+        <!-- cheek blush -->
+        <ellipse cx="20" cy="52" rx="5" ry="3" fill="#e09080" opacity=".4"/>
+        <ellipse cx="48" cy="52" rx="5" ry="3" fill="#e09080" opacity=".4"/>
+        <!-- nose -->
+        <ellipse cx="34" cy="54" rx="2" ry="1.5" fill="#d8a870"/>
+        <!-- PERMA SMILE -->
+        <path d="M27 59 Q34 66 41 59" stroke="#c04050" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <!-- teeth -->
+        <path d="M28 59.5 Q34 63 40 59.5" fill="#fff"/>
+        <!-- lipstick outline -->
+        <path d="M27 59 Q34 56 41 59" stroke="#d04060" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+        <!-- earrings -->
+        <circle cx="15" cy="50" r="2.5" fill="#f0c060" stroke="#c09030" stroke-width=".5"/>
+        <circle cx="53" cy="50" r="2.5" fill="#f0c060" stroke="#c09030" stroke-width=".5"/>
+      </svg>
+      <div class="nameplate" style="left:50%;right:0">LINDA<br><span style="color:#aa6080;font-size:7px">CO-ANCHOR</span></div>
+    </div>
+
+    <div id="wml-mb-desk"><div id="wml-mb-desk-logo">v2 NEWS</div></div>
+  </div>
+  <div id="wml-mb-script">
+    <div id="wml-mb-speaker" style="color:#cc0000">MORBO</div>
+    <div id="wml-mb-line">Loading doom transmission...</div>
+  </div>
+  <div id="wml-mb-controls">
+    <button class="mb-btn" id="wml-prev-btn">← prev</button>
+    <button class="mb-btn active" id="wml-mb-play">⏸ auto</button>
+    <button class="mb-btn" id="wml-next-btn">next →</button>
+    <div id="wml-mb-copy">© Disney</div>
+  </div>
+</div>
+</div>
+    </div>
+
+    <div class="lab-widget-box">
+      <div class="lab-widget-inline">
+<style>
+#wnn-app{width:100%;max-width:340px;font-family:'Oswald',var(--font-sans);background:#1a1a14;border-radius:12px;border:2px solid #3a3a28;overflow:hidden}
+#wnn-masthead{background:#222218;padding:6px 12px 5px;border-bottom:1px solid #3a3a28;display:flex;align-items:center;justify-content:space-between}
+#wnn-paper-name{font-size:15px;font-weight:700;color:#d8d0a0;letter-spacing:3px;text-align:center}
+#wnn-paper-sub{font-size:7px;color:#6a6a50;letter-spacing:2px;margin-top:1px;text-align:center}
+#wnn-edition{font-size:7px;color:#5a5a40;letter-spacing:1px;text-align:right;line-height:1.6}
+#wnn-anchor-row{display:flex;border-bottom:1px solid #2a2a1a}
+#wnn-neutral-side{flex:1;background:#1e1e16;padding:10px 8px 8px;display:flex;flex-direction:column;align-items:center;border-right:1px solid #2a2a1a}
+#wnn-nixon-side{flex:1;background:#181410;padding:10px 8px 8px;display:flex;flex-direction:column;align-items:center}
+.anchor-name{font-size:7px;letter-spacing:1.5px;margin-bottom:5px;font-weight:600}
+#wnn-neutral-name{color:#8a8a60}
+#wnn-nixon-name{color:#6a4030}
+.reaction-bubble{font-size:8px;min-height:30px;line-height:1.4;text-align:center;margin-top:6px;padding:0 2px;font-style:italic;letter-spacing:.2px}
+#wnn-neutral-react{color:#7a7a58}
+#wnn-nixon-react{color:#c04020}
+#wnn-headline-area{padding:10px 12px 8px;background:#1a1a12;border-bottom:1px solid #2a2a1a}
+#wnn-headline-label{font-size:7px;color:#5a5a38;letter-spacing:2px;margin-bottom:4px}
+#wnn-headline-text{font-size:13px;font-weight:700;color:#c8c090;line-height:1.4;letter-spacing:.5px;min-height:38px}
+#wnn-body-text{padding:8px 12px;font-size:9px;color:#7a7a58;line-height:1.6;min-height:44px;font-family:var(--font-sans);font-weight:400;border-bottom:1px solid #1e1e12}
+#wnn-nixon-rage-bar{height:3px;background:#2a1a10;overflow:hidden}
+#wnn-rage-fill{height:100%;background:#8a2010;width:0%;transition:width .6s ease}
+#wnn-ticker-wrap{background:#14140e;padding:4px 0;overflow:hidden;border-bottom:1px solid #2a2a1a}
+#wnn-ticker-inner{white-space:nowrap;font-size:8px;color:#6a6a48;letter-spacing:1px;animation:ticker 30s linear infinite;display:inline-block;padding-left:100%}
+@keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}
+#wnn-controls{background:#141410;padding:6px 12px;display:flex;align-items:center;justify-content:space-between}
+#wnn-next-btn{background:#222218;border:1px solid #3a3a28;border-radius:4px;color:#8a8a60;font-size:9px;font-family:'Oswald',var(--font-sans);padding:4px 10px;cursor:pointer;letter-spacing:1px;transition:background .15s}
+#wnn-next-btn:hover{background:#2a2a1e;color:#b0a870}
+#wnn-auto-btn{background:#222218;border:1px solid #3a3a28;border-radius:4px;color:#5a5a40;font-size:9px;font-family:'Oswald',var(--font-sans);padding:4px 10px;cursor:pointer}
+#wnn-auto-btn.on{color:#8a8a60;border-color:#4a4a30}
+#wnn-story-num{font-size:8px;color:#3a3a28;letter-spacing:1px}
+</style>
+
+<div id="wnn-app">
+  <div id="wnn-masthead">
+    <div style="font-size:8px;color:#4a4a34;line-height:1.6">EST.<br>2987</div>
+    <div><div id="wnn-paper-name">THE NEUTRAL TIMES</div><div id="wnn-paper-sub">NEITHER GOOD NOR BAD NEWS SINCE 2987</div></div>
+    <div id="wnn-edition">GALACTIC<br>EDITION</div>
+  </div>
+
+  <div id="wnn-anchor-row">
+    <!-- NEUTRAL PRESIDENT -->
+    <div id="wnn-neutral-side">
+      <div class="anchor-name" id="wnn-neutral-name">NEUTRAL PRESIDENT</div>
+      <svg width="68" height="82" viewBox="0 0 68 82" xmlns="http://www.w3.org/2000/svg">
+        <rect x="14" y="56" width="40" height="26" rx="4" fill="#3a3a2a"/>
+        <polygon points="24,56 34,64 44,56 40,56 34,60 28,56" fill="#c8c090"/>
+        <polygon points="34,64 31,70 34,78 37,70" fill="#5a5a42"/>
+        <rect x="5" y="58" width="11" height="20" rx="3" fill="#3a3a2a"/>
+        <rect x="52" y="58" width="11" height="20" rx="3" fill="#3a3a2a"/>
+        <rect x="26" y="48" width="16" height="10" rx="2" fill="#b0a870"/>
+        <!-- head -->
+        <ellipse cx="34" cy="34" rx="20" ry="22" fill="#b8b07a"/>
+        <!-- flat hair -->
+        <ellipse cx="34" cy="14" rx="18" ry="9" fill="#888060"/>
+        <rect x="16" y="14" width="36" height="8" fill="#888060"/>
+        <!-- ears -->
+        <ellipse cx="14" cy="34" rx="3.5" ry="4.5" fill="#a8a070"/>
+        <ellipse cx="54" cy="34" rx="3.5" ry="4.5" fill="#a8a070"/>
+        <!-- half-open bored eyes -->
+        <ellipse cx="26" cy="32" rx="5.5" ry="4.5" fill="#e8e0c0"/>
+        <ellipse cx="42" cy="32" rx="5.5" ry="4.5" fill="#e8e0c0"/>
+        <ellipse cx="26" cy="33" rx="3" ry="2.5" fill="#5a5040"/>
+        <ellipse cx="42" cy="33" rx="3" ry="2.5" fill="#5a5040"/>
+        <!-- heavy lids -->
+        <rect x="20.5" y="28" width="11" height="5" rx=".5" fill="#b8b07a"/>
+        <rect x="36.5" y="28" width="11" height="5" rx=".5" fill="#b8b07a"/>
+        <!-- flat brows -->
+        <line x1="21" y1="27" x2="31" y2="27" stroke="#6a6048" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="37" y1="27" x2="47" y2="27" stroke="#6a6048" stroke-width="1.5" stroke-linecap="round"/>
+        <!-- perfectly flat mouth -->
+        <line x1="26" y1="44" x2="42" y2="44" stroke="#7a7050" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <div class="reaction-bubble" id="wnn-neutral-react">I have no strong feelings about this one way or the other.</div>
+    </div>
+
+    <!-- NIXON HEAD IN JAR -->
+    <div id="wnn-nixon-side">
+      <div class="anchor-name" id="wnn-nixon-name">PRES. NIXON'S HEAD</div>
+      <svg width="68" height="82" viewBox="0 0 68 82" xmlns="http://www.w3.org/2000/svg" id="wnn-nixon-svg">
+        <defs>
+          <!-- jar green glow gradient -->
+          <radialGradient id="wnn-jarglow" cx="30%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#2aff80" stop-opacity=".07"/>
+            <stop offset="100%" stop-color="#003010" stop-opacity=".0"/>
+          </radialGradient>
+          <!-- stubble pattern -->
+          <pattern id="wnn-stubble" width="3" height="3" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r=".55" fill="#5a3828" opacity=".55"/>
+            <circle cx="2.5" cy="2.5" r=".45" fill="#4a2818" opacity=".4"/>
+          </pattern>
+        </defs>
+
+        <!-- jar shadow base -->
+        <ellipse cx="34" cy="79" rx="22" ry="4" fill="#001808" opacity=".6"/>
+
+        <!-- jar body -->
+        <rect x="10" y="16" width="48" height="62" rx="10" fill="#061c0e" stroke="#0d4020" stroke-width="1.8"/>
+        <!-- jar glass sheen -->
+        <rect x="12" y="18" width="44" height="58" rx="9" fill="url(#wnn-jarglow)"/>
+        <!-- left glass highlight -->
+        <rect x="13" y="22" width="5" height="44" rx="2.5" fill="#1aff70" opacity=".07"/>
+        <!-- right subtle reflection -->
+        <rect x="50" y="28" width="3" height="30" rx="1.5" fill="#1aff70" opacity=".04"/>
+
+        <!-- jar lid / collar -->
+        <rect x="8" y="10" width="52" height="11" rx="5" fill="#0a3018" stroke="#1a6030" stroke-width="1.2"/>
+        <rect x="11" y="12" width="46" height="7" rx="3.5" fill="#0d4020"/>
+        <!-- lid rivets -->
+        <circle cx="18" cy="15" r="1.5" fill="#1a5028"/>
+        <circle cx="34" cy="15" r="1.5" fill="#1a5028"/>
+        <circle cx="50" cy="15" r="1.5" fill="#1a5028"/>
+        <!-- tubes from lid -->
+        <line x1="22" y1="10" x2="22" y2="4" stroke="#0d5020" stroke-width="2.2"/>
+        <line x1="46" y1="10" x2="46" y2="4" stroke="#0d5020" stroke-width="2.2"/>
+        <circle cx="22" cy="3.5" r="3" fill="#061808" stroke="#0d4018" stroke-width=".8"/>
+        <circle cx="46" cy="3.5" r="3" fill="#061808" stroke="#0d4018" stroke-width=".8"/>
+        <!-- tube glow dots -->
+        <circle cx="22" cy="3.5" r="1.2" fill="#30ff80" opacity=".25"/>
+        <circle cx="46" cy="3.5" r="1.2" fill="#30ff80" opacity=".25"/>
+
+        <!-- === NIXON HEAD === -->
+        <!-- massive jowls - the defining feature -->
+        <ellipse cx="34" cy="65" rx="16" ry="8" fill="#b87850" id="wnn-nx-jowl-base"/>
+        <!-- jowl left hang -->
+        <ellipse cx="21" cy="60" rx="7" ry="9" fill="#b07048" id="wnn-nx-jowl-l"/>
+        <!-- jowl right hang -->
+        <ellipse cx="47" cy="60" rx="7" ry="9" fill="#b07048" id="wnn-nx-jowl-r"/>
+
+        <!-- main face -->
+        <ellipse cx="34" cy="44" rx="17" ry="19" fill="#c07850" id="wnn-nx-face"/>
+
+        <!-- 5 o'clock shadow — covers lower face/jaw area -->
+        <ellipse cx="34" cy="55" rx="14" ry="9" fill="url(#wnn-stubble)" opacity=".9" id="wnn-nx-shadow"/>
+        <!-- jowl shadow continuation -->
+        <ellipse cx="21" cy="60" rx="6" ry="7" fill="url(#wnn-stubble)" opacity=".7"/>
+        <ellipse cx="47" cy="60" rx="6" ry="7" fill="url(#wnn-stubble)" opacity=".7"/>
+
+        <!-- NOSE — the famous Nixon nose, large bulbous -->
+        <ellipse cx="34" cy="50" rx="5.5" ry="6.5" fill="#a86840" id="wnn-nx-nose"/>
+        <ellipse cx="34" cy="54" rx="4" ry="3.5" fill="#986030"/>
+        <!-- nose tip shine -->
+        <ellipse cx="33" cy="48" rx="2" ry="1.5" fill="#c88050" opacity=".5"/>
+        <!-- nostrils -->
+        <ellipse cx="31" cy="55" rx="1.4" ry="1" fill="#7a3820"/>
+        <ellipse cx="37" cy="55" rx="1.4" ry="1" fill="#7a3820"/>
+
+        <!-- eyes - deep-set, beady, shifty -->
+        <ellipse cx="25" cy="40" rx="5" ry="4.5" fill="#d8c8a0" id="wnn-nx-eye-l"/>
+        <ellipse cx="43" cy="40" rx="5" ry="4.5" fill="#d8c8a0" id="wnn-nx-eye-r"/>
+        <!-- under-eye bags -->
+        <path d="M20 43 Q25 45.5 30 43" fill="#9a6038" opacity=".4"/>
+        <path d="M38 43 Q43 45.5 48 43" fill="#9a6038" opacity=".4"/>
+        <!-- pupils - small and shifty -->
+        <ellipse cx="25" cy="40" rx="2.8" ry="3" fill="#1a0800" id="wnn-nx-pupil-l"/>
+        <ellipse cx="43" cy="40" rx="2.8" ry="3" fill="#1a0800" id="wnn-nx-pupil-r"/>
+        <!-- eye highlights -->
+        <circle cx="26" cy="39" r="1" fill="#fff" opacity=".5"/>
+        <circle cx="44" cy="39" r="1" fill="#fff" opacity=".5"/>
+        <!-- heavy upper lids -->
+        <path d="M20 37 Q25 34.5 30 37" fill="#9a6038" opacity=".5" id="wnn-nx-lid-l"/>
+        <path d="M38 37 Q43 34.5 48 37" fill="#9a6038" opacity=".5" id="wnn-nx-lid-r"/>
+
+        <!-- thick angry brows — default angry V -->
+        <path d="M19 33 Q25 29 31 32" stroke="#2a1408" stroke-width="2.5" fill="none" stroke-linecap="round" id="wnn-nx-brow-l"/>
+        <path d="M37 32 Q43 29 49 33" stroke="#2a1408" stroke-width="2.5" fill="none" stroke-linecap="round" id="wnn-nx-brow-r"/>
+        <!-- brow fill for thickness -->
+        <path d="M19 33 Q25 29 31 32 Q25 31 19 34" fill="#2a1408" id="wnn-nx-brow-l-fill"/>
+        <path d="M37 32 Q43 29 49 33 Q43 31 37 33" fill="#2a1408" id="wnn-nx-brow-r-fill"/>
+
+        <!-- hairline — receding, slicked back -->
+        <path d="M17 36 Q20 20 34 22 Q48 20 51 36 Q46 24 34 25 Q22 24 17 36" fill="#1e0e04" id="wnn-nx-hair"/>
+        <!-- hair sheen -->
+        <path d="M24 24 Q30 21 36 23" stroke="#3a1e08" stroke-width="1" fill="none" opacity=".4"/>
+
+        <!-- MOUTH — wide downward scowl -->
+        <path d="M23 62 Q34 58 45 62" stroke="#7a3818" stroke-width="2" fill="none" stroke-linecap="round" id="wnn-nx-mouth"/>
+        <!-- jowl crease lines -->
+        <path d="M19 54 Q17 60 20 67" stroke="#8a5030" stroke-width="1.2" fill="none" opacity=".5"/>
+        <path d="M49 54 Q51 60 48 67" stroke="#8a5030" stroke-width="1.2" fill="none" opacity=".5"/>
+        <!-- nasolabial folds -->
+        <path d="M28 55 Q25 59 26 64" stroke="#8a5030" stroke-width="1" fill="none" opacity=".4"/>
+        <path d="M40 55 Q43 59 42 64" stroke="#8a5030" stroke-width="1" fill="none" opacity=".4"/>
+
+        <!-- VEIN on forehead (shown at high rage) -->
+        <path d="M28 30 Q31 25 34 28 Q36 24 39 27" stroke="#c02010" stroke-width="1.4" fill="none" opacity="0" id="wnn-nx-vein" stroke-linecap="round"/>
+        <!-- forehead sweat drops (shown at high rage) -->
+        <ellipse cx="20" cy="28" rx="1.8" ry="2.5" fill="#70b8e0" opacity="0" id="wnn-nx-sweat-l"/>
+        <ellipse cx="48" cy="32" rx="1.4" ry="2" fill="#70b8e0" opacity="0" id="wnn-nx-sweat-r"/>
+        <!-- steam lines from top of jar (shown at max rage) -->
+        <path d="M26 10 Q24 5 27 1" stroke="#ff6030" stroke-width="1.2" fill="none" opacity="0" stroke-linecap="round" id="wnn-nx-steam-l"/>
+        <path d="M34 10 Q33 4 35 1" stroke="#ff6030" stroke-width="1.2" fill="none" opacity="0" stroke-linecap="round" id="wnn-nx-steam-m"/>
+        <path d="M42 10 Q44 5 41 1" stroke="#ff6030" stroke-width="1.2" fill="none" opacity="0" stroke-linecap="round" id="wnn-nx-steam-r"/>
+
+        <!-- jar label band at bottom -->
+        <rect x="12" y="68" width="44" height="8" rx="2" fill="#0a2a14" opacity=".8"/>
+        <text x="34" y="75" text-anchor="middle" font-family="monospace" font-size="5.5" fill="#1a6030" letter-spacing="1">NIXONHEAD v1</text>
+      </svg>
+      <div class="reaction-bubble" id="wnn-nixon-react">Arrooo! This makes Nixon VERY upset!</div>
+    </div>
+  </div>
+
+  <div id="wnn-headline-area">
+    <div id="wnn-headline-label">BREAKING — NEITHER URGENT NOR UNURGENT</div>
+    <div id="wnn-headline-text">Loading today's non-events...</div>
+  </div>
+  <div id="wnn-body-text">Developing. Or possibly not. It is difficult to say.</div>
+  <div id="wnn-nixon-rage-bar"><div id="wnn-rage-fill"></div></div>
+  <div id="wnn-ticker-wrap"><div id="wnn-ticker-inner">STOCKS REMAIN UNCHANGED — NEITHER UP NOR DOWN — WEATHER: CONDITIONS PERSIST — SPORTS: TEAMS COMPETED — LOCAL: EVENT OCCURRED — MORE TO FOLLOW — OR NOT —</div></div>
+  <div id="wnn-controls">
+    <button id="wnn-next-btn">NEXT STORY</button>
+    <span id="wnn-story-num">1 / 40</span>
+    <button id="wnn-auto-btn" class="on">AUTO ON</button>
+  </div>
+</div>
+</div>
+    </div>
+
+    <div class="lab-widget-box">
+      <div class="lab-widget-inline">
+<style>
+    #wbg-bg-root{font-family:var(--font-sans);background:#08080f;border-radius:8px;overflow:hidden;width:100%;max-width:340px;box-sizing:border-box}
+  #wbg-bg-ticker{background:#3a1a6a;color:#c8a8ff;font-size:9px;font-weight:600;padding:3px 8px;letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+  #wbg-bg-ticker .live{background:#c8a8ff;color:#3a1a6a;font-size:8px;font-weight:700;padding:1px 4px;border-radius:2px}
+  #wbg-bg-progress{height:2px;background:#1a0a3a}
+  #wbg-bg-prog-bar{height:100%;background:#c8a8ff;transition:width .4s}
+  #wbg-bg-set{display:flex;height:152px;position:relative;background:#060612;overflow:hidden}
+  #wbg-bg-bender-area,#wbg-bg-god-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;position:relative;z-index:2;transition:opacity .4s,transform .4s}
+  #wbg-bg-desk{position:absolute;bottom:0;left:0;right:0;height:22px;background:#0a0a1a;border-top:1.5px solid #3a1a6a;z-index:3;display:flex;align-items:center;justify-content:center}
+  #wbg-bg-desk-logo{font-family:'Oswald',var(--font-sans);color:#c8a8ff;font-size:9px;letter-spacing:3px;opacity:.7}
+  #wbg-bg-script{background:#06060f;padding:10px 12px;min-height:78px;border-top:1px solid #1a0a3a}
+  #wbg-bg-speaker{font-size:9px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;margin-bottom:4px}
+  #wbg-bg-line{font-size:11px;line-height:1.6;color:#d8d8f8;font-style:italic}
+  #wbg-bg-controls{background:#04040c;padding:7px 10px;display:flex;align-items:center;gap:6px;border-top:1px solid #100a20}
+  #wbg-bg-copy{font-size:8px;color:#333;margin-left:auto;letter-spacing:.02em}
+  button.bg-btn{background:transparent;border:.5px solid #3a1a6a;border-radius:6px;color:#9a78cc;font-size:10px;padding:4px 9px;cursor:pointer}
+  button.bg-btn:hover{background:#1a0a3a}
+  button.bg-btn.active{background:#1a0a3a;color:#c8a8ff;border-color:#c8a8ff}
+  .bg-nameplate{position:absolute;bottom:24px;font-size:7px;text-align:center;z-index:4;font-weight:600;letter-spacing:.05em;line-height:1.3;white-space:nowrap}
+</style>
+
+<div id="wbg-bg-root">
+  <div id="wbg-bg-ticker"><span class="live">∞</span><span id="wbg-bg-headline">BINARY SPACE — DIVINE TRANSMISSION</span></div>
+  <div id="wbg-bg-progress"><div id="wbg-bg-prog-bar" style="width:1%"></div></div>
+  <div id="wbg-bg-set">
+
+    <!-- NEBULA / STARS BG -->
+    <svg style="position:absolute;inset:0;width:100%;height:100%;z-index:0" id="wbg-bg-stars-svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="wbg-nebula1" cx="75%" cy="40%" r="50%">
+          <stop offset="0%" stop-color="#2a0a5a" stop-opacity=".6"/>
+          <stop offset="100%" stop-color="transparent" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="wbg-nebula2" cx="20%" cy="60%" r="40%">
+          <stop offset="0%" stop-color="#0a1a4a" stop-opacity=".5"/>
+          <stop offset="100%" stop-color="transparent" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#wbg-nebula1)"/>
+      <rect width="100%" height="100%" fill="url(#wbg-nebula2)"/>
+    </svg>
+
+    <!-- BENDER -->
+    <div id="wbg-bg-bender-area">
+      <svg width="66" height="120" viewBox="0 0 66 120" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <!-- bender body - rounded silver cylinder -->
+        <rect x="12" y="62" width="42" height="50" rx="8" fill="#b8c0c8"/>
+        <rect x="12" y="62" width="42" height="8" rx="4" fill="#c8d0d8"/>
+        <!-- body sheen lines -->
+        <rect x="16" y="70" width="4" height="36" rx="2" fill="#d0d8e0" opacity=".5"/>
+        <!-- chest door panel -->
+        <rect x="18" y="72" width="30" height="22" rx="3" fill="#9aa2aa" stroke="#7a8288" stroke-width=".8"/>
+        <rect x="21" y="75" width="10" height="6" rx="1.5" fill="#6a7278"/>
+        <rect x="35" y="75" width="10" height="6" rx="1.5" fill="#6a7278"/>
+        <rect x="21" y="84" width="24" height="4" rx="1.5" fill="#6a7278"/>
+        <!-- arms -->
+        <rect x="1" y="65" width="13" height="8" rx="4" fill="#b0b8c0"/>
+        <rect x="52" y="65" width="13" height="8" rx="4" fill="#b0b8c0"/>
+        <!-- forearms -->
+        <rect x="0" y="70" width="10" height="24" rx="4" fill="#a8b0b8"/>
+        <rect x="56" y="70" width="10" height="24" rx="4" fill="#a8b0b8"/>
+        <!-- hands / grippers -->
+        <ellipse cx="5" cy="96" rx="5" ry="4" fill="#9aa0a8"/>
+        <ellipse cx="61" cy="96" rx="5" ry="4" fill="#9aa0a8"/>
+        <!-- legs -->
+        <rect x="17" y="108" width="12" height="12" rx="3" fill="#9aa2aa"/>
+        <rect x="37" y="108" width="12" height="12" rx="3" fill="#9aa2aa"/>
+        <!-- feet -->
+        <rect x="14" y="116" width="18" height="4" rx="2" fill="#888f95"/>
+        <rect x="34" y="116" width="18" height="4" rx="2" fill="#888f95"/>
+        <!-- BENDER HEAD - round with antenna -->
+        <!-- neck -->
+        <rect x="24" y="52" width="18" height="14" rx="3" fill="#b0b8c0"/>
+        <!-- main head sphere -->
+        <ellipse cx="33" cy="38" rx="22" ry="22" fill="#c0c8d0"/>
+        <!-- head sheen -->
+        <ellipse cx="27" cy="28" rx="8" ry="6" fill="#d8e0e8" opacity=".5"/>
+        <!-- visor band -->
+        <rect x="12" y="34" width="42" height="12" rx="3" fill="#1a1a2a"/>
+        <!-- eyes inside visor -->
+        <ellipse cx="24" cy="40" rx="6" ry="6" fill="#e8e000"/>
+        <ellipse cx="42" cy="40" rx="6" ry="6" fill="#e8e000"/>
+        <ellipse cx="24" cy="40" rx="4" ry="4" fill="#c8c000"/>
+        <ellipse cx="42" cy="40" rx="4" ry="4" fill="#c8c000"/>
+        <ellipse cx="24" cy="40" rx="2" ry="2" fill="#1a1a0a"/>
+        <ellipse cx="42" cy="40" rx="2" ry="2" fill="#1a1a0a"/>
+        <!-- eye shine -->
+        <circle cx="25.5" cy="38.5" r="1" fill="#fff" opacity=".7"/>
+        <circle cx="43.5" cy="38.5" r="1" fill="#fff" opacity=".7"/>
+        <!-- mouth line -->
+        <path d="M19 50 Q33 55 47 50" stroke="#8a9098" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <!-- antenna -->
+        <rect x="31" y="12" width="4" height="18" rx="2" fill="#a8b0b8"/>
+        <circle cx="33" cy="10" r="4" fill="#c8a8ff"/>
+        <circle cx="33" cy="10" r="2" fill="#e8c8ff" id="wbg-bg-antenna-glow"/>
+        <!-- beer can in hand -->
+        <rect x="-2" y="90" width="10" height="12" rx="2" fill="#c8a000"/>
+        <rect x="-1" y="90" width="8" height="3" rx="1" fill="#e8c000"/>
+        <rect x="0" y="99" width="6" height="2" rx="1" fill="#a87800"/>
+      </svg>
+      <div class="bg-nameplate" style="left:0;right:50%;color:#a8c0d8">BENDER<br><span style="color:#6888a0;font-size:7px">BENDING UNIT</span></div>
+    </div>
+
+    <!-- SPACE GOD - CENTER/RIGHT as diffuse glowing entity -->
+    <div id="wbg-bg-god-area" style="position:relative;flex:1.1">
+      <svg width="80" height="138" viewBox="0 0 80 138" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <defs>
+          <radialGradient id="wbg-godglow" cx="50%" cy="45%" r="50%">
+            <stop offset="0%" stop-color="#fffce8" stop-opacity=".95"/>
+            <stop offset="30%" stop-color="#f0d890" stop-opacity=".7"/>
+            <stop offset="60%" stop-color="#c8a840" stop-opacity=".3"/>
+            <stop offset="100%" stop-color="transparent" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="wbg-godcore" cx="50%" cy="44%" r="35%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
+            <stop offset="50%" stop-color="#fff8d0" stop-opacity=".9"/>
+            <stop offset="100%" stop-color="#f0d070" stop-opacity=".5"/>
+          </radialGradient>
+        </defs>
+        <!-- outer glow halo rings -->
+        <ellipse cx="40" cy="52" rx="36" ry="36" fill="url(#wbg-godglow)" opacity=".35"/>
+        <ellipse cx="40" cy="52" rx="26" ry="26" fill="url(#wbg-godglow)" opacity=".45"/>
+        <!-- body diffuse glow -->
+        <ellipse cx="40" cy="90" rx="18" ry="30" fill="#f8e880" opacity=".08"/>
+        <!-- main entity form - amorphous bright blob -->
+        <ellipse cx="40" cy="52" rx="20" ry="22" fill="url(#wbg-godcore)" opacity=".9"/>
+        <!-- bright core -->
+        <ellipse cx="40" cy="50" rx="12" ry="13" fill="#ffffff" opacity=".85"/>
+        <ellipse cx="40" cy="49" rx="6" ry="7" fill="#ffffff" opacity=".95"/>
+        <!-- subtle face: barely visible suggestions of features -->
+        <!-- eyes - just faint warm glows -->
+        <ellipse cx="35" cy="46" rx="3" ry="2.5" fill="#f8e040" opacity=".6"/>
+        <ellipse cx="45" cy="46" rx="3" ry="2.5" fill="#f8e040" opacity=".6"/>
+        <ellipse cx="35" cy="46" rx="1.5" ry="1.2" fill="#a87800" opacity=".5"/>
+        <ellipse cx="45" cy="46" rx="1.5" ry="1.2" fill="#a87800" opacity=".5"/>
+        <!-- faint mouth suggestion -->
+        <path d="M34 56 Q40 59 46 56" stroke="#d8b820" stroke-width=".8" fill="none" opacity=".4" stroke-linecap="round"/>
+        <!-- particle streams emanating -->
+        <circle cx="22" cy="36" r="1.5" fill="#f8e880" opacity=".5" id="wbg-bg-p1"/>
+        <circle cx="58" cy="30" r="1.2" fill="#f8e880" opacity=".4" id="wbg-bg-p2"/>
+        <circle cx="16" cy="52" r="1" fill="#e8d060" opacity=".35"/>
+        <circle cx="64" cy="58" r="1" fill="#e8d060" opacity=".35"/>
+        <circle cx="30" cy="22" r="1.3" fill="#fff8c0" opacity=".45"/>
+        <circle cx="52" cy="18" r="1" fill="#fff8c0" opacity=".4"/>
+        <circle cx="20" cy="68" r="1.2" fill="#d8c040" opacity=".3"/>
+        <circle cx="62" cy="40" r="1" fill="#e8d868" opacity=".4"/>
+        <!-- trailing body form downward -->
+        <ellipse cx="40" cy="80" rx="8" ry="16" fill="#f8e880" opacity=".12"/>
+        <ellipse cx="40" cy="95" rx="5" ry="10" fill="#f8e880" opacity=".07"/>
+      </svg>
+      <div class="bg-nameplate" style="left:50%;right:0;color:#f0d870">SPACE GOD<br><span style="color:#a89040;font-size:7px">BINARY ENTITY</span></div>
+    </div>
+
+    <div id="wbg-bg-desk"><div id="wbg-bg-desk-logo">∴ BINARY SPACE ∴</div></div>
+  </div>
+
+  <div id="wbg-bg-script">
+    <div id="wbg-bg-speaker" style="color:#c8a8ff">SPACE GOD</div>
+    <div id="wbg-bg-line">Loading divine transmission...</div>
+  </div>
+  <div id="wbg-bg-controls">
+    <button class="bg-btn" id="wbg-prev-btn">← prev</button>
+    <button class="bg-btn active" id="wbg-bg-play">⏸ auto</button>
+    <button class="bg-btn" id="wbg-next-btn">next →</button>
+    <div id="wbg-bg-copy">© Disney</div>
+  </div>
+</div>
+</div>
+    </div>
+
+    <div class="lab-widget-box" id="wh-tracker">
+      <div class="lab-widget-inline">
+<style>
+#wt-app{width:100%;font-family:'Oswald',var(--font-sans);background:#060d1a;border-radius:12px;border:2px solid #0a3060;overflow:hidden;box-sizing:border-box}
+
+#wt-header{background:#081828;padding:8px 12px;border-bottom:1px solid #0a3060;display:flex;align-items:center;justify-content:space-between}
+#wt-logo{display:flex;align-items:center;gap:7px}
+#wt-logo-mark{width:28px;height:18px;position:relative}
+#wt-title-text{font-size:12px;font-weight:700;letter-spacing:1.5px;color:#e8a020;line-height:1.1}
+#wt-title-sub{font-size:8px;color:#6090c0;letter-spacing:1px;font-weight:400}
+#wt-eta-badge{background:#0a2040;border:1px solid #1a4080;border-radius:6px;padding:4px 8px;text-align:right}
+#wt-eta-label{font-size:7px;color:#4080b0;letter-spacing:1px;display:block}
+#wt-eta-val{font-size:13px;font-weight:700;color:#e8a020}
+
+#wt-starmap{position:relative;width:100%;height:180px;background:#02080f;overflow:hidden;border-bottom:1px solid #0a2040}
+#wt-stars-layer{position:absolute;inset:0;width:100%;height:100%}
+#wt-route-svg{position:absolute;inset:0;width:100%;height:100%}
+#wt-ship-el{position:absolute;transform:translate(-50%,-50%);transition:left 0.8s linear,top 0.8s linear;z-index:10;font-size:0;line-height:0}
+
+#scan-line{position:absolute;left:0;right:0;height:1px;background:rgba(0,200,100,0.15);z-index:5;animation:scan 4s linear infinite}
+@keyframes scan{0%{top:0}100%{top:100%}}
+
+#wt-origin-dot,#wt-dest-dot{position:absolute;width:8px;height:8px;border-radius:50%;z-index:8;transform:translate(-50%,-50%)}
+#wt-origin-dot{background:#4080ff;box-shadow:0 0 6px #4080ff}
+#wt-dest-dot{background:#ff4040;animation:pulse-dest 1.5s ease-in-out infinite}
+@keyframes pulse-dest{0%,100%{box-shadow:0 0 4px #ff4040}50%{box-shadow:0 0 12px #ff4040,0 0 20px rgba(255,60,60,.3)}}
+
+.planet-dot{position:absolute;border-radius:50%;transform:translate(-50%,-50%);z-index:6}
+.p-label{position:absolute;font-size:8px;font-family:'Oswald',var(--font-sans);color:#3a6090;z-index:7;white-space:nowrap;transform:translateX(-50%)}
+
+#wt-status-bar{background:#04101e;padding:6px 12px;border-bottom:1px solid #0a2040;display:flex;align-items:center;gap:8px}
+#wt-status-dot{width:7px;height:7px;border-radius:50%;background:#00cc66;animation:blink 1.2s ease-in-out infinite;flex-shrink:0}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+#wt-status-text{font-size:10px;color:#70b0e0;flex:1;font-weight:400;letter-spacing:.5px}
+#wt-progress-pct{font-size:11px;font-weight:700;color:#e8a020}
+
+#wt-progress-track{height:4px;background:#04101e;margin:0;position:relative}
+#wt-progress-fill{height:100%;background:#1a6030;transition:width 1s linear;position:relative}
+#wt-progress-fill::after{content:'';position:absolute;right:0;top:-2px;width:8px;height:8px;border-radius:50%;background:#00cc66;box-shadow:0 0 6px #00cc66}
+
+#wt-pkg-area{padding:8px 12px}
+#wt-pkg-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+#wt-pkg-id{font-size:9px;color:#3a6090;letter-spacing:1px}
+#wt-pkg-title{font-size:12px;font-weight:700;color:#c0d8f0;letter-spacing:.5px}
+
+#wt-route-steps{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.step{display:flex;align-items:flex-start;gap:8px}
+.step-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:2px;border:1.5px solid}
+.step-dot.done{background:#1a6030;border-color:#00cc66}
+.step-dot.active{background:#0a2a5a;border-color:#4080ff;animation:blink 1s infinite}
+.step-dot.todo{background:#04101e;border-color:#1a3050}
+.step-info{flex:1}
+.step-name{font-size:10px;color:#a0c0e0;font-weight:500;letter-spacing:.3px}
+.step-detail{font-size:8px;color:#3a6090;letter-spacing:.5px;margin-top:1px}
+.step-line{width:1.5px;background:#1a3050;margin-left:4.25px;height:8px}
+
+#wt-crew-row{display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:.5px solid #0a2040}
+#wt-crew-label{font-size:8px;color:#3a6090;letter-spacing:1px}
+#wt-crew-names{font-size:9px;color:#6090c0;letter-spacing:.5px}
+#wt-new-delivery-btn{background:#0a2040;border:1px solid #1a4060;border-radius:4px;color:#4080b0;font-size:8px;font-family:'Oswald',var(--font-sans);padding:3px 8px;cursor:pointer;letter-spacing:1px;transition:background .15s}
+#wt-new-delivery-btn:hover{background:#1a3050;color:#70b0e0}
+
+#wt-captain-msg{margin:0 12px 8px;background:#020c18;border:1px solid #0a2a0a;border-radius:6px;padding:6px 10px;display:flex;gap:8px;align-items:flex-start}
+#wt-captain-face{font-size:18px;flex-shrink:0;line-height:1}
+#wt-captain-quote{font-size:9px;color:#609040;font-style:italic;line-height:1.5;letter-spacing:.3px}
+</style>
+
+
+<div id="wt-app">
+  <div id="wt-header">
+    <div id="wt-logo">
+      <svg id="wt-logo-mark" width="36" height="22" viewBox="0 0 36 22">
+        <ellipse cx="18" cy="16" rx="16" ry="5" fill="#1a4060" stroke="#2a6090" stroke-width="1"/>
+        <path d="M6 16 Q18 2 30 16" fill="#1a6030" stroke="#2a9050" stroke-width="1"/>
+        <ellipse cx="18" cy="13" rx="5" ry="3" fill="#60c0f0" opacity=".7"/>
+        <circle cx="8" cy="16" r="2" fill="#ff6020"/>
+        <circle cx="28" cy="16" r="2" fill="#ff6020"/>
+      </svg>
+      <div>
+        <div id="wt-title-text">PLANET EXPRESS</div>
+        <div id="wt-title-sub">DELIVERY TRACKING</div>
+      </div>
+    </div>
+    <div id="wt-eta-badge">
+      <span id="wt-eta-label">ETA</span>
+      <span id="wt-eta-val">--</span>
+    </div>
+  </div>
+
+  <div id="wt-starmap">
+    <canvas id="wt-stars-layer" width="340" height="180"></canvas>
+    <svg id="wt-route-svg" viewBox="0 0 340 180" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="wt-arr-r" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M1 1L7 4L1 7" fill="none" stroke="#1a5030" stroke-width="1.2" stroke-linecap="round"/>
+        </marker>
+      </defs>
+      <path id="wt-route-path" fill="none" stroke="#1a4030" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#wt-arr-r)"/>
+      <path id="wt-route-done" fill="none" stroke="#2a8050" stroke-width="1.5"/>
+    </svg>
+    <div id="wt-origin-dot"></div>
+    <div id="wt-dest-dot"></div>
+    <div id="wt-ship-el">
+      <svg width="26" height="20" viewBox="0 0 36 26">
+        <ellipse cx="18" cy="20" rx="14" ry="4" fill="#1a5080" stroke="#2a80c0" stroke-width="1"/>
+        <path d="M7 20 Q18 6 29 20" fill="#2a9060" stroke="#40c080" stroke-width="1"/>
+        <ellipse cx="18" cy="17" rx="4" ry="2.5" fill="#80d0f8" opacity=".85"/>
+        <ellipse cx="7" cy="20" rx="2" ry="1.5" fill="#ff8030" opacity=".9" id="wt-exhaust-l"/>
+        <ellipse cx="29" cy="20" rx="2" ry="1.5" fill="#ff8030" opacity=".9" id="wt-exhaust-r"/>
+      </svg>
+    </div>
+  </div>
+
+  <div id="wt-progress-track"><div id="wt-progress-fill" style="width:0%"></div></div>
+
+  <div id="wt-status-bar">
+    <div id="wt-status-dot"></div>
+    <div id="wt-status-text">Initializing navigation...</div>
+    <div id="wt-progress-pct">0%</div>
+  </div>
+
+  <div id="wt-pkg-area">
+    <div id="wt-pkg-header">
+      <span id="wt-pkg-id">PKG-000000</span>
+      <span id="wt-pkg-title">Loading manifest...</span>
+    </div>
+    <div id="wt-route-steps"></div>
+    <div id="wt-crew-row">
+      <div>
+        <div id="wt-crew-label">CREW ON BOARD</div>
+        <div id="wt-crew-names">—</div>
+      </div>
+      <button id="wt-new-delivery-btn">NEW DELIVERY</button>
+    </div>
+  </div>
+
+  <div id="wt-captain-msg">
+    <div id="wt-captain-face">👩‍✈️</div>
+    <div id="wt-captain-quote">Awaiting orders from the Professor...</div>
+  </div>
+</div>
+</div>
+    </div>
+
+
+  </div><!-- /panel-lab -->
+
+  <!-- ══════════════════════════════════════════════════════════
+       COLD STORAGE PANEL
+       ══════════════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-cold">
+    <div class="lab-header">
+      <span class="lab-header-icon">📌</span>
+      <div>
+        <div class="lab-title">COLD STORAGE</div>
+        <div class="lab-sub">Pinned moments from the Planet Express archive</div>
+      </div>
+    </div>
+    <div class="cold-storage-toolbar">
+      <span style="font-size:9px;color:var(--fg3);font-family:'Share Tech Mono',monospace;letter-spacing:.5px">
+        SAVED EXCHANGES
+      </span>
+      <button class="cold-del-all-btn" id="coldDelAllBtn">🗑️ DELETE ALL</button>
+    </div>
+    <div id="coldStorageList">
+      <div class="cold-empty">No saved exchanges yet.<br>Pin great moments using the 📌 button on any message.</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SETTINGS PANEL
+       ══════════════════════════════════════════════════════════ -->
+  <div class="panel" id="panel-settings">
+    <!-- ── CHAOS MODE ─────────────────────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title">💥 Chaos Mode</div>
+      <div style="font-size:10px;color:var(--fg2);line-height:1.5;margin-bottom:8px">
+        The crew becomes ruder, louder, and less willing to stay on topic.
+        Bender escalates. Professor forgets what's dangerous. Zoidberg cries.
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
+        <span style="font-size:11px;color:var(--fg2)">💀 Enable Chaos</span>
+        <label class="pill-toggle">
+          <input type="checkbox" id="chaosToggle">
+          <span class="pill-track" style="--char-color:#E06C75"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- ── THEME ──────────────────────────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title">🎨 Appearance</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
+        <span style="font-size:11px;color:var(--fg2)">☀️ Light Mode</span>
+        <label class="pill-toggle">
+          <input type="checkbox" id="themeToggle">
+          <span class="pill-track" style="--char-color:var(--gold)"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- ── CAST TOGGLES (spoiler) ────────────────────────────────── -->
+    <div class="s-section" style="padding:0;overflow:hidden">
+      <details id="castSpoiler">
+        <summary style="
+          display:flex;align-items:center;justify-content:space-between;
+          padding:11px 12px;cursor:pointer;list-style:none;
+          font-family:'Orbitron',monospace;font-size:8px;color:var(--fg2);
+          letter-spacing:2px;text-transform:uppercase;
+          background:var(--bg2);transition:background .2s;
+        ">
+          <span>👥 Cast &amp; Crew</span>
+          <span id="castSpoilerArrow" style="font-size:10px;transition:transform .25s">▶</span>
+        </summary>
+        <div style="padding:10px 12px 12px;border-top:1px solid var(--border)">
+          <div style="font-size:10px;color:var(--fg2);line-height:1.6;margin-bottom:8px">
+            Toggle any character on or off. All 18 can speak in chat and autopilot.
+          </div>
+          <div class="cast-grid" id="castGrid"><!-- Populated by JS --></div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ── DELIVERY REWARDS (spoiler) ────────────────────────────── -->
+    <div class="s-section" style="padding:0;overflow:hidden">
+      <details id="crewProgressSpoiler">
+        <summary style="
+          display:flex;align-items:center;justify-content:space-between;
+          padding:11px 12px;cursor:pointer;list-style:none;
+          font-family:'Orbitron',monospace;font-size:8px;color:var(--fg2);
+          letter-spacing:2px;text-transform:uppercase;
+          background:var(--bg2);transition:background .2s;
+        " id="crewProgressSummary">
+          <span>🚀 Delivery Log &amp; Rewards</span>
+          <span class="crew-progress-arrow" style="font-size:10px;transition:transform .25s">▶</span>
+        </summary>
+        <div style="padding:10px 12px 12px;border-top:1px solid var(--border)">
+          <div id="crewProgressList">
+            <div style="font-size:10px;color:var(--fg3);padding:8px 0;font-style:italic">Loading crew records…</div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ── SPEAKING SPEED ──────────────────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title">⏩ Speed</div>
+      <div style="font-size:10px;color:var(--fg2);margin-bottom:6px;line-height:1.5">
+        Text speed controls how fast dialogue types on screen. Voice speed controls how fast the crew speak — linked by default but adjustable separately.
+      </div>
+      <div class="speed-row">
+        <div class="speed-label-row">
+          <span class="speed-label">Text speed (WPM)</span>
+          <span class="speed-value" id="speedDisplay">200 wpm</span>
+        </div>
+        <input type="range" class="speed-slider" id="speedSlider"
+          min="100" max="400" step="10" value="200">
+        <div class="speed-marks">
+          <span>100</span><span style="margin-left:auto;margin-right:auto">250</span><span>400</span>
+        </div>
+      </div>
+      <div class="speed-row" style="margin-top:6px">
+        <div class="speed-label-row">
+          <span class="speed-label">Voice speed</span>
+          <span class="speed-value" id="voiceSpeedDisplay">1.2×</span>
+        </div>
+        <input type="range" class="speed-slider" id="voiceSpeedSlider"
+          min="0.8" max="2.0" step="0.1" value="1.2">
+        <div class="speed-marks">
+          <span>Slow</span><span style="margin-left:auto;margin-right:auto">Natural</span><span>Fast</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── FONT SIZE ──────────────────────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title">🔤 Text Size</div>
+      <div class="speed-row">
+        <div class="speed-label-row">
+          <span class="speed-label">Aa Chat font size</span>
+          <span class="speed-value" id="fontDisplay">13 px</span>
+        </div>
+        <input type="range" class="speed-slider" id="fontSlider"
+          min="10" max="20" step="1" value="13">
+        <div class="speed-marks">
+          <span>Small</span>
+          <span style="margin-left:auto;margin-right:auto">Default</span>
+          <span>Large</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- settingsDot kept for JS status wiring — hidden, inside Provider section -->
+
+    <!-- ── PROVIDER & MODEL ─────────────────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title" style="display:flex;align-items:center;gap:8px">
+        Provider &amp; Model
+        <div class="status-dot" id="settingsDot" style="width:8px;height:8px;border-radius:50%;background:var(--system);margin-left:auto;flex-shrink:0"></div>
+      </div>
+      <div style="font-size:10px;color:var(--fg2);margin-bottom:8px;line-height:1.5">
+        <strong style="color:var(--gold)">Recommended:</strong> Groq with llama-3.3-70b-versatile — fastest, free tier, best character voice.
+        OpenRouter and Gemini for alternative providers; some models require paid API keys.
+      </div>
+      <div class="field">
+        <label>Provider</label>
+        <select id="providerSelect">
+          <option value="Groq">Groq (fast &amp; free — recommended)</option>
+          <option value="OpenRouter">OpenRouter</option>
+          <option value="Gemini">Gemini</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Model</label>
+        <select id="modelSelect"></select>
+      </div>
+    </div>
+
+    <!-- ── API KEYS ────────────────────────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title">API Keys</div>
+      <div style="font-size:10px;color:var(--fg2);line-height:1.5;margin-bottom:6px">
+        Groq is free. Get your key at <a href="https://console.groq.com" target="_blank" rel="noopener" style="color:var(--gold)">console.groq.com</a> — takes 30 seconds.
+      </div>
+      <div class="field" id="groqKeyField">
+        <label>Groq API Key</label>
+        <input type="password" id="groqKey" placeholder="gsk_… (free at console.groq.com)">
+      </div>
+      <div class="field" id="orKeyField" style="display:none">
+        <label>OpenRouter API Key</label>
+        <input type="password" id="orKey" placeholder="sk-or-… (openrouter.ai/keys)">
+      </div>
+      <div class="field" id="gemKeyField" style="display:none">
+        <label>Gemini API Key</label>
+        <input type="password" id="gemKey" placeholder="AIza… (aistudio.google.com)">
+      </div>
+      <button class="save-config-btn" id="saveConfigBtn">💾 SAVE &amp; CONNECT</button>
+      <div class="settings-msg" id="settingsMsg"></div>
+      <button class="save-config-btn" id="testConnBtn"
+        style="background:transparent;border:1px solid var(--border);color:var(--fg2);
+               font-family:'Orbitron',monospace;font-size:8px;letter-spacing:1px;
+               padding:7px;border-radius:6px;cursor:pointer;width:100%;margin-top:2px;
+               transition:border-color .2s,color .2s">
+        🔌 TEST CONNECTION
+      </button>
+    </div>
+
+
+    <!-- ── YOUR DATA ──────────────────────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title">🗄️ Your Data</div>
+      <div style="font-size:10px;color:var(--fg2);line-height:1.5;margin-bottom:8px">
+        All conversation data is stored locally in your browser's IndexedDB — never sent to any server beyond your chosen LLM provider.
+      </div>
+      <div id="dataSummary">
+        <div style="font-size:10px;color:var(--fg3);font-style:italic">Loading…</div>
+      </div>
+      <button class="data-clear-btn" id="clearAllBtn" style="margin-top:8px">🗑️ CLEAR ALL DATA</button>
+    </div>
+
+    <!-- ── LEGAL & DISCLAIMER ──────────────────────────────────── -->
+    <div class="s-section legal-section">
+      <div class="s-title">⚖️ Legal &amp; Intellectual Property</div>
+
+      <div class="legal-badge">FAN PROJECT — NOT FOR COMMERCIAL USE</div>
+
+      <p class="legal-body">
+        <strong>Futurama</strong>, all character names, likenesses, catchphrases,
+        and related elements are the intellectual property of
+        <strong>The Walt Disney Company</strong> and its subsidiaries, including
+        <strong>20th Television Animation</strong> (formerly 20th Century Fox
+        Television). The series is currently distributed by
+        <strong>Hulu</strong>, a Disney-majority-owned service.
+      </p>
+
+      <p class="legal-body">
+        This application is an <strong>independent, non-commercial fan project</strong>
+        created for personal entertainment and educational purposes only.
+        It is not affiliated with, endorsed by, sponsored by, or in any way
+        officially connected to Disney, Hulu, 20th Television Animation,
+        Matt Groening, or any rights holders associated with Futurama.
+      </p>
+
+      <p class="legal-body">
+        No copyright infringement is intended. All character simulations are
+        <strong>satirical parody</strong> protected under fair use principles
+        (17 U.S.C. § 107). Character dialogue is AI-generated and does not
+        represent the views of the original creators, voice actors, or rights holders.
+      </p>
+
+      <p class="legal-body">
+        This tool is provided <strong>"as is"</strong> without warranty of any kind.
+        The developer assumes no liability for content generated by third-party
+        AI models (Groq, OpenRouter, Gemini) used via user-supplied API keys.
+        You are responsible for your own API usage and associated costs.
+      </p>
+
+      <p class="legal-body">
+        If you are a rights holder and have concerns about this project,
+        please contact the developer directly before issuing any claims.
+        This project will be modified or taken down upon legitimate request.
+      </p>
+
+      <p class="legal-body" style="margin-top:8px">
+        To watch the official series, visit
+        <a href="https://www.hulu.com/series/futurama-6f5a394b-0f16-466e-a1b3-c14ccf7e1c23" target="_blank" rel="noopener noreferrer" style="color:var(--gold)">Futurama on Hulu</a>
+        or learn more at
+        <a href="https://www.disneyplus.com" target="_blank" rel="noopener noreferrer" style="color:var(--gold)">Disney+</a>.
+        Supporting the official release supports future episodes.
+      </p>
+      <p class="legal-body">
+        Fan content policy reference:
+        <a href="https://support.disney.com/hc/en-us" target="_blank" rel="noopener noreferrer" style="color:var(--fg2);font-size:9px">Disney Support</a>.
+        This project will be modified or removed upon any legitimate request from rights holders.
+      </p>
+      <div class="legal-footer">
+        Planet Express Lounge — Non-commercial fan project — v3.0<br>
+        Futurama © 2023 The Curiosity Company and 20th Television Animation,<br>
+        a subsidiary of Disney Television Studios. Distributed by Hulu.<br>
+        All rights reserved by their respective owners. Not affiliated with Disney, Hulu, or 20th Television Animation.
+      </div>
+    </div>
+
+    <!-- ── PRIVACY & SETUP GUIDE ───────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title">📋 Privacy &amp; Setup</div>
+      <div style="font-size:10px;color:var(--fg2);line-height:1.8;margin-bottom:10px">
+        <strong style="color:var(--fg)">Quick Start:</strong><br>
+        1. Get a free API key at
+        <a href="https://console.groq.com" target="_blank" rel="noopener"
+           style="color:var(--gold)">console.groq.com</a> (30 seconds, no card)<br>
+        2. Paste it above → Save &amp; Connect<br>
+        3. The status dot turns green → start chatting<br><br>
+        <strong style="color:var(--fg)">Your data:</strong> Everything stays in your browser.
+        No analytics. No telemetry. Your API key is only sent to your chosen provider.
+      </div>
+      <a href="privacy_policy.html" target="_blank" rel="noopener"
+         style="display:block;font-family:'Share Tech Mono',monospace;font-size:10px;
+                color:var(--gold);text-decoration:none;padding:6px 0">
+        📋 View full Privacy Policy →
+      </a>
+    </div>
+
+    <!-- ── ABOUT ──────────────────────────────────────────────── -->
+    <div class="s-section">
+      <div class="s-title">ℹ️ About</div>
+      <div style="font-size:10px;color:var(--fg2);line-height:1.6;margin-bottom:8px">
+        Planet Express Lounge <strong style="color:var(--fg)">v3.1</strong> — Unofficial fan project.<br>
+        Futurama © Disney / 20th Television Animation.
+      </div>
+      <button id="showWelcomeBtn" style="
+        width:100%;padding:7px;border-radius:6px;
+        border:1px solid var(--border);background:var(--bg3);
+        color:var(--fg2);font-family:'Share Tech Mono',monospace;
+        font-size:9px;letter-spacing:1px;cursor:pointer;
+        transition:border-color .2s,color .2s;
+      ">📖 SETUP GUIDE &amp; LEGAL</button>
+    </div>
+  </div><!-- /panel-settings -->
+
+  <!-- STATUS BAR -->
+  <div class="statusbar" id="statusBar">Ready — Good news, everyone!</div>
+
+</div><!-- /app -->
+<script type="module" src="sidepanel.js"></script>
+</body>
+</html>

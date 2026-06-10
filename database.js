@@ -1,402 +1,321 @@
 /**
- * crew.js  —  Planet Express Lounge v4.0
- * The Crew orchestrator — ported from Python Crew class in app.py.
- * Handles chat responses, autopilot episodes, routing, and generation tasks.
- * Runs entirely client-side. Communicates results via async callbacks / AsyncGenerators.
+ * database.js  —  Planet Express Lounge v4.0
+ * IndexedDB storage replacing the Python SQLite backend.
+ * Provides async methods mirroring the Python DB class interface.
  */
 
-import {
-  FULL_CAST, CREW_WEIGHTS, INVENTIONS, BENDER_SCHEMES, AUTOPILOT_TOPICS,
-  EP_PHASE_SEQUENCE, EP_PHASE_PROMPTS,
-  PROF_INV_SYS, EPISODE_TITLE_SYS, JOURNAL_SYS, PREVIOUSLY_SYS,
-  ROUTER_SYS, AGENT_KEYWORDS,
-  buildSysPrompt, routeAgentByKeyword, pickLength,
-  buildEpisodeRoster, getTierRoleNote, detectFocusAgent,
-} from "./prompts.js";
-import { tts } from "./tts.js";
+const DB_NAME    = "PlanetExpressLounge";
+const DB_VERSION = 1;
 
-export class Crew {
-  /**
-   * @param {import("./llm.js").LLMClient} llm
-   * @param {import("./database.js").PEDatabase} db
-   * @param {Object} [opts]
-   * @param {boolean} [opts.chaos]
-   */
-  constructor(llm, db, opts = {}) {
-    this.llm    = llm;
-    this.db     = db;
-    this.chaos  = opts.chaos || false;
+// ── Open / upgrade ──────────────────────────────────────────────────────────
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
 
-    // Per-session state
-    this.enabled        = Object.fromEntries(FULL_CAST.map(a => [a, true]));
-    this.todayInvention = "";
-    this.benderScheme   = _pick(BENDER_SCHEMES);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
 
-    // Cancellation
-    this._cancelled = false;
-    this._paused    = false;
-    this._abortCtrl = new AbortController();
-  }
-
-  get signal() { return this._abortCtrl.signal; }
-
-  cancel() {
-    this._cancelled = true;
-    this._abortCtrl.abort();
-    // Create a fresh AbortController for the next run,
-    // but leave _cancelled=true until the next startAutopilot/respondToUser call
-    // clears it explicitly. This prevents a new call racing in before the current
-    // stream has fully wound down.
-    this._abortCtrl = new AbortController();
-  }
-
-  // Called at the start of each new run to reset cancellation state
-  _resetCancel() {
-    this._cancelled = false;
-    this._paused    = false;
-  }
-
-  pause()  { this._paused = true;  }
-  resume() { this._paused = false; }
-
-  /** Waits while paused, checking every 200ms. Resolves immediately if not paused. */
-  async _waitIfPaused() {
-    while (this._paused && !this._cancelled) {
-      await new Promise(r => setTimeout(r, 200));
-    }
-  }
-
-  activeWeighted() {
-    const pool = [];
-    for (const [cid, w] of Object.entries(CREW_WEIGHTS)) {
-      if (this.enabled[cid] !== false) {
-        for (let i = 0; i < w; i++) pool.push(cid);
+      // sessions — top-level conversation containers
+      if (!db.objectStoreNames.contains("sessions")) {
+        const ss = db.createObjectStore("sessions", { keyPath: "id" });
+        ss.createIndex("ts", "ts", { unique: false });
       }
-    }
-    return pool;
-  }
 
-  // ── LLM Router — picks the best agent for a message ────────────────────
-  async routeAgent(message, transcript) {
-    const active = FULL_CAST.filter(a => this.enabled[a] !== false);
-
-    // 1. Try LLM router (fast, 1-token answer)
-    try {
-      const ctx = [
-        `Recent conversation:\n${transcript.slice(-300)}`,
-        `User message: ${message}`,
-        `Available characters: ${active.join(", ")}`,
-        `Pick the single best character to reply.`,
-      ].join("\n\n");
-      const reply = await this.llm.complete(ROUTER_SYS, ctx, 5);
-      const upper = reply.trim().toUpperCase();
-      for (const name of active) {
-        if (upper.includes(name)) return name;
+      // turns — individual agent utterances, indexed by sessionId
+      if (!db.objectStoreNames.contains("turns")) {
+        const ts = db.createObjectStore("turns", {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+        ts.createIndex("sid", "sid", { unique: false });
+        ts.createIndex("ts",  "ts",  { unique: false });
       }
-    } catch {}
 
-    // 2. Keyword scoring fallback
-    return routeAgentByKeyword(message, transcript, this.enabled, this.benderScheme);
-  }
-
-  // ── Single agent streaming turn ─────────────────────────────────────────
-  /**
-   * Streams one agent's response. Returns accumulated text.
-   * @param {string} agentId
-   * @param {string} sysPrompt
-   * @param {string} ctx
-   * @param {number} maxTok
-   * @param {Function} emit - emit({ type, agent, text }) callback
-   */
-  async _streamAgent(agentId, sysPrompt, ctx, maxTok, emit) {
-    emit({ type: "speaker", agent: agentId });
-    let acc = "";
-    try {
-      acc = await this.llm.stream(
-        sysPrompt,
-        ctx,
-        maxTok,
-        (chunk) => emit({ type: "token", agent: agentId, text: chunk }),
-        this.signal,
-      );
-    } catch (err) {
-      if (err.name !== "AbortError") {
-        emit({ type: "system", text: `API error — check your key in Settings. (${err.message})` });
+      // pins — cold storage saved exchanges
+      if (!db.objectStoreNames.contains("pins")) {
+        const ps = db.createObjectStore("pins", {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+        ps.createIndex("ts", "ts", { unique: false });
       }
-    }
-    emit({ type: "turn_end", agent: agentId });
-    return acc;
-  }
 
-  // ── Respond to user message ─────────────────────────────────────────────
-  /**
-   * Chat engine: primary responder + 0-2 follow-ups.
-   * @param {string} sid
-   * @param {string} transcript
-   * @param {string} message
-   * @param {Function} emit
-   */
-  async respondToUser(sid, transcript, message, emit) {
-    this._resetCancel();
-    const snip = transcript.slice(-1200);
-    const inv  = this.todayInvention
-      ? `\n(The Professor recently invented: ${this.todayInvention})`
-      : "";
-
-    // Turn 1: best-matched primary
-    const primary               = await this.routeAgent(message, transcript);
-    const [lenInstr, maxTok]    = pickLength(true);
-    const sysPrimary            = buildSysPrompt(primary, lenInstr, {
-      autopilot: false, chaos: this.chaos,
-      invention: this.todayInvention, scheme: this.benderScheme,
-    });
-    const ctx1 = `CONVERSATION SO FAR:${inv}\n${snip}\n\nUSER: ${message}\n\nRespond as ${primary}. React to what the user said. Be in character.`;
-
-    const acc1 = await this._streamAgent(primary, sysPrimary, ctx1, maxTok, emit);
-    if (acc1) await this.db.logTurn(sid, primary, acc1);
-
-    if (this._cancelled) { emit({ type: "done" }); return; }
-
-    let localTr = snip + (acc1 ? `\n${primary}: ${acc1}` : "");
-
-    // Turns 2-3: 0-2 follow-ups
-    const pool     = this.activeWeighted().filter(c => c !== primary);
-    const nFollowups = _weightedChoice([[0,20],[1,50],[2,30]]);
-    const spoken     = new Set([primary]);
-
-    for (let i = 0; i < nFollowups; i++) {
-      if (this._cancelled) break;
-      const candidates = pool.filter(c => !spoken.has(c));
-      if (!candidates.length) break;
-      const nxt = _pick(candidates);
-      spoken.add(nxt);
-      const sys2  = buildSysPrompt(nxt, "Reply in 1-2 punchy sentences.", {
-        autopilot: false, chaos: this.chaos,
-        invention: this.todayInvention, scheme: this.benderScheme,
-      });
-      const ctx2  = `CONVERSATION SO FAR:\n${localTr}\n\nUSER asked: ${message.slice(0,120)}\nThe crew is responding. Now YOU jump in as ${nxt}. React to what was just said, add your own angle. Be unmistakably yourself. 1-2 sentences. Do NOT introduce yourself by name.`;
-      const acc2  = await this._streamAgent(nxt, sys2, ctx2, 80, emit);
-      if (acc2) {
-        localTr += `\n${nxt}: ${acc2}`;
-        await this.db.logTurn(sid, nxt, acc2);
+      // journal — mission log entries
+      if (!db.objectStoreNames.contains("journal")) {
+        const js = db.createObjectStore("journal", {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+        js.createIndex("sid", "sid", { unique: false });
+        js.createIndex("ts",  "ts",  { unique: false });
       }
-    }
 
-    emit({ type: "done" });
-  }
-
-  // ── Autopilot episode engine ────────────────────────────────────────────
-  /**
-   * Runs sitcom episodes in a loop until cancelled.
-   * @param {string} sid
-   * @param {Function} emit
-   */
-  async startAutopilot(sid, emit) {
-    this._resetCancel();
-    const usedTopics = new Set();
-
-    const pickTopic = () => {
-      const available = AUTOPILOT_TOPICS.filter(t => !usedTopics.has(t));
-      const pool = available.length ? available : AUTOPILOT_TOPICS;
-      if (!available.length) usedTopics.clear();
-      const t = _pick(pool);
-      usedTopics.add(t);
-      return t;
+      // cfg — key/value config store
+      if (!db.objectStoreNames.contains("cfg")) {
+        db.createObjectStore("cfg", { keyPath: "key" });
+      }
     };
 
-    while (!this._cancelled) {
-      // ── New episode ─────────────────────────────────────────────────────
-      const topic = pickTopic();
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror   = (e) => reject(e.target.error);
+  });
+}
 
-      // Episode title
-      let epTitle = "";
-      try {
-        epTitle = await this.llm.complete(EPISODE_TITLE_SYS, `Topic: ${topic}`, 20);
-        epTitle = epTitle.replace(/['"]/g, "").trim();
-      } catch {}
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function tx(db, stores, mode, fn) {
+  return new Promise((resolve, reject) => {
+    const t = db.transaction(stores, mode);
+    t.onerror   = () => reject(t.error);
+    t.oncomplete = () => {};
+    resolve(fn(t));
+  });
+}
 
-      emit({ type: "ap_topic", topic });
-      if (epTitle) emit({ type: "ep_title", title: epTitle });
+function reqPromise(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
 
-      // Occasionally refresh Bender's scheme
-      if (Math.random() < 0.4) {
-        this.benderScheme = _pick(BENDER_SCHEMES);
-        emit({ type: "scheme_update", scheme: this.benderScheme });
-      }
+function cursorAll(store) {
+  return new Promise((resolve, reject) => {
+    const results = [];
+    const req = store.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) { results.push(cursor.value); cursor.continue(); }
+      else resolve(results);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
 
-      // Invention complication
-      if (this.todayInvention && Math.random() < 0.3) {
-        emit({ type: "invention_complication", invention: this.todayInvention });
-      }
+function indexAll(index) {
+  return new Promise((resolve, reject) => {
+    const results = [];
+    const req = index.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) { results.push(cursor.value); cursor.continue(); }
+      else resolve(results);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
 
-      let localTr    = `Episode topic: ${topic}\n`;
-      let lastAgent  = "";
-      const agentLastSaid = {};
+// ── PEDatabase class ────────────────────────────────────────────────────────
+export class PEDatabase {
+  constructor() {
+    this._db = null;
+    this._ready = this._init();
+  }
 
-      // ── Build episode roster using the narrative tier system ─────────────
-      // Detects focus episodes automatically, then allocates speaking slots
-      // across 4 tiers matching a standard 22-minute Futurama episode structure.
-      const focusAgent = detectFocusAgent(topic);
-      const { roster, tierOf } = buildEpisodeRoster(
-        this.enabled,
-        EP_PHASE_SEQUENCE,
-        focusAgent,
-      );
+  async _init() {
+    this._db = await openDB();
+  }
 
-      if (focusAgent) {
-        emit({ type: "system", text: `Focus episode: ${focusAgent} takes the lead.` });
-      }
+  async ready() {
+    await this._ready;
+    return this;
+  }
 
-      let rosterIdx = 0;
+  // ── Sessions ──────────────────────────────────────────────────────────────
 
-      // ── Phase loop ───────────────────────────────────────────────────────
-      for (const [phaseName, phaseTurns] of EP_PHASE_SEQUENCE) {
-        if (this._cancelled) break;
+  async newSession(sid, query) {
+    await this._ready;
+    const session = {
+      id:    sid,
+      query: (query || "").slice(0, 500),
+      ts:    new Date().toISOString(),
+      label: "",
+      notes: "",
+    };
+    const t = this._db.transaction("sessions", "readwrite");
+    const req = t.objectStore("sessions").put(session);
+    return reqPromise(req);
+  }
 
-        for (let t = 0; t < phaseTurns; t++) {
-          if (this._cancelled) break;
+  async getSessions() {
+    await this._ready;
+    const t     = this._db.transaction("sessions", "readonly");
+    const all   = await cursorAll(t.objectStore("sessions"));
+    return all.sort((a, b) => b.ts.localeCompare(a.ts));
+  }
 
-          // Pull next agent from the pre-built narrative roster
-          // Skip if same as last speaker (avoid back-to-back monologue)
-          let agentId = roster[rosterIdx % roster.length];
-          if (agentId === lastAgent && roster.length > 1) {
-            // Try next slot
-            const alt = roster[(rosterIdx + 1) % roster.length];
-            if (alt !== lastAgent) { rosterIdx++; agentId = alt; }
-          }
-          rosterIdx++;
+  async deleteSession(sid) {
+    await this._ready;
 
-          const prevSaid = agentLastSaid[agentId] || "";
+    // Transaction 1: delete the session record
+    const t1 = this._db.transaction("sessions", "readwrite");
+    t1.objectStore("sessions").delete(sid);
+    await new Promise((resolve, reject) => {
+      t1.oncomplete = resolve;
+      t1.onerror    = () => reject(t1.error);
+    });
 
-          // ── Build system prompt with tier role note ─────────────────────
-          const [lenInstr, maxTok] = pickLength();
-          const tierNote  = getTierRoleNote(agentId, tierOf);
-          const sysPrompt = buildSysPrompt(agentId, lenInstr, {
-            autopilot:   true,
-            chaos:       this.chaos,
-            invention:   this.todayInvention,
-            scheme:      this.benderScheme,
-            tierNote,           // injected into system prompt
-          });
+    // Transaction 2: delete turns by sid (separate tx — IDB auto-commits on await yield)
+    const t2 = this._db.transaction("turns", "readwrite");
+    await new Promise((resolve, reject) => {
+      const req = t2.objectStore("turns").index("sid").openCursor(IDBKeyRange.only(sid));
+      req.onsuccess = (e) => {
+        const c = e.target.result;
+        if (c) { c.delete(); c.continue(); } else resolve();
+      };
+      req.onerror = reject;
+    });
 
-          // ── Phase context ───────────────────────────────────────────────
-          let ctx;
-          if (EP_PHASE_PROMPTS[phaseName]) {
-            const noRepeat = prevSaid
-              ? `Do NOT repeat: "${prevSaid.slice(0,100)}" — say something new.\n`
-              : "";
-            const invNote = agentId === "PROF" && this.todayInvention
-              ? `\nYour invention (${this.todayInvention}) is menacingly relevant.`
-              : "";
-            const focusNote = focusAgent && agentId !== focusAgent
-              ? `\nThis is ${focusAgent}'s episode — your line should react to, challenge, or support ${focusAgent}.`
-              : "";
-            ctx = EP_PHASE_PROMPTS[phaseName]
-              .replace(/\{agent\}/g,  agentId)
-              .replace(/\{topic\}/g,  topic)
-              .replace(/\{recent\}/g, localTr.slice(-500))
-              .replace(/\{length\}/g, lenInstr)
-              + invNote + noRepeat + focusNote;
-          } else {
-            ctx = `TOPIC: ${topic}\nBender's scheme: ${this.benderScheme}\n\nRECENT:\n${localTr.slice(-400)}\n\nReact. Sound like ${agentId}.`;
-          }
+    // Transaction 3: delete journal by sid (separate tx for same reason)
+    const t3 = this._db.transaction("journal", "readwrite");
+    await new Promise((resolve, reject) => {
+      const req = t3.objectStore("journal").index("sid").openCursor(IDBKeyRange.only(sid));
+      req.onsuccess = (e) => {
+        const c = e.target.result;
+        if (c) { c.delete(); c.continue(); } else resolve();
+      };
+      req.onerror = reject;
+    });
+  }
 
-          const acc = await this._streamAgent(agentId, sysPrompt, ctx, maxTok, emit);
-
-          if (this._cancelled) break;
-
-          if (acc) {
-            await this.db.logTurn(sid, agentId, acc);
-            localTr += `\n${agentId}: ${acc}`;
-            agentLastSaid[agentId] = acc;
-          }
-          lastAgent = agentId;
-
-          // Wait for TTS to finish speaking this turn before the next agent starts.
-          if (!this._cancelled) {
-            await tts.waitForIdle();
-          }
-          // Pause point — if paused, hold here until resumed
-          await this._waitIfPaused();
-          // Short breath between speakers
-          await _sleep(180);
+  async updateNotes(sid, notes) {
+    await this._ready;
+    const t   = this._db.transaction("sessions", "readwrite");
+    const req = t.objectStore("sessions").get(sid);
+    return new Promise((resolve, reject) => {
+      req.onsuccess = () => {
+        const sess = req.result;
+        if (sess) {
+          sess.notes = (notes || "").slice(0, 2000);
+          t.objectStore("sessions").put(sess);
         }
-      }
-
-      // ── Episode end ─────────────────────────────────────────────────────
-      if (!this._cancelled) {
-        emit({ type: "ap_episode_end", topic });
-        // Wait for any remaining speech to finish, then pause before next episode
-        await tts.waitForIdle();
-        await _sleep(3000);
-      }
-    }
-
-    emit({ type: "ap_done" });
+        resolve();
+      };
+      req.onerror = reject;
+    });
   }
 
-  // ── Generate invention ──────────────────────────────────────────────────
-  async genInvention(emit) {
-    const inv = _pick(INVENTIONS);
-    let text = `Good news, everyone! I have invented ${inv}!`;
-    try {
-      text = await this.llm.complete(PROF_INV_SYS, `Today's invention: ${inv}. Announce it.`, 60);
-    } catch {}
-    this.todayInvention = inv;
-    emit({ type: "invention", text, agent: "PROF" });
-    return text;
+  // ── Turns ─────────────────────────────────────────────────────────────────
+
+  async logTurn(sid, agent, content) {
+    await this._ready;
+    const turn = {
+      sid,
+      agent,
+      content: (content || "").slice(0, 4000),
+      ts:      new Date().toISOString(),
+    };
+    const t   = this._db.transaction("turns", "readwrite");
+    const req = t.objectStore("turns").add(turn);
+    await reqPromise(req);
+    await this._trimTurns(sid);
   }
 
-  // ── Generate journal ────────────────────────────────────────────────────
-  async genJournal(sid, topic, emit) {
-    const hist = await this.db.getHistory(sid);
-    if (!hist.length) {
-      emit({ type: "system", text: "Nothing to journal yet!" });
-      return;
-    }
-    const tr = hist.slice(-20).map(m => `${m.agent}: ${m.content}`).join("\n");
-    try {
-      const text = await this.llm.complete(JOURNAL_SYS, `Topic: ${topic}\n\n${tr}`, 250);
-      await this.db.saveJournal(sid, text);
-      emit({ type: "journal", text, agent: "PROF" });
-    } catch (e) {
-      emit({ type: "system", text: `Journal error: ${e.message}` });
+  async _trimTurns(sid, max = 120) {
+    const all  = await this.getHistory(sid);
+    if (all.length <= max) return;
+    const toDelete = all.slice(0, all.length - max);
+    const t = this._db.transaction("turns", "readwrite");
+    for (const turn of toDelete) {
+      t.objectStore("turns").delete(turn.id);
     }
   }
 
-  // ── Generate "Previously on…" recap ────────────────────────────────────
-  async genPreviously(sid, emit) {
-    const hist = await this.db.getHistory(sid);
-    if (!hist.length) {
-      emit({ type: "previously", text: "Good news, everyone! Nothing happened previously. We begin fresh, doomed anew.", agent: "PROF" });
-      return;
-    }
-    const tr = hist.slice(-15).map(m => `${m.agent}: ${m.content}`).join("\n");
-    try {
-      const text = await this.llm.complete(PREVIOUSLY_SYS, tr, 100);
-      emit({ type: "previously", text, agent: "NARRATOR" });
-    } catch {
-      emit({ type: "previously", text: "Previously on Planet Express… things happened. Most of them bad. The crew survived. Barely.", agent: "NARRATOR" });
-    }
+  async getHistory(sid) {
+    await this._ready;
+    const t   = this._db.transaction("turns", "readonly");
+    const idx = t.objectStore("turns").index("sid");
+    const all = await indexAll(idx);
+    return all
+      .filter(r => r.sid === sid)
+      .sort((a, b) => a.ts.localeCompare(b.ts));
+  }
+
+  // ── Pins (Cold Storage) ───────────────────────────────────────────────────
+
+  async savePin(agent, text, label) {
+    await this._ready;
+    const pin = {
+      agent,
+      text:  (text  || "").slice(0, 2000),
+      label: (label || agent),
+      ts:    new Date().toISOString(),
+    };
+    const t   = this._db.transaction("pins", "readwrite");
+    const req = t.objectStore("pins").add(pin);
+    return reqPromise(req);
+  }
+
+  async getPins() {
+    await this._ready;
+    const t   = this._db.transaction("pins", "readonly");
+    const all = await cursorAll(t.objectStore("pins"));
+    return all.sort((a, b) => b.ts.localeCompare(a.ts));
+  }
+
+  async deletePin(id) {
+    await this._ready;
+    const t   = this._db.transaction("pins", "readwrite");
+    const req = t.objectStore("pins").delete(id);
+    return reqPromise(req);
+  }
+
+  async deleteAllPins() {
+    await this._ready;
+    const t   = this._db.transaction("pins", "readwrite");
+    const req = t.objectStore("pins").clear();
+    return reqPromise(req);
+  }
+
+  // ── Journal ───────────────────────────────────────────────────────────────
+
+  async saveJournal(sid, content) {
+    await this._ready;
+    const entry = {
+      sid,
+      content: (content || "").slice(0, 2000),
+      ts:      new Date().toISOString(),
+    };
+    const t   = this._db.transaction("journal", "readwrite");
+    const req = t.objectStore("journal").add(entry);
+    return reqPromise(req);
+  }
+
+  async getJournal(sid) {
+    await this._ready;
+    const t   = this._db.transaction("journal", "readonly");
+    const idx = t.objectStore("journal").index("sid");
+    const all = await indexAll(idx);
+    return all
+      .filter(r => r.sid === sid)
+      .sort((a, b) => b.ts.localeCompare(a.ts));
+  }
+
+  // ── Config ─────────────────────────────────────────────────────────────────
+
+  async cfgSet(key, value) {
+    await this._ready;
+    const t   = this._db.transaction("cfg", "readwrite");
+    const req = t.objectStore("cfg").put({ key, value: String(value) });
+    return reqPromise(req);
+  }
+
+  async cfgGet(key, defaultValue = "") {
+    await this._ready;
+    const t   = this._db.transaction("cfg", "readonly");
+    const req = t.objectStore("cfg").get(key);
+    const r   = await reqPromise(req);
+    return r ? r.value : defaultValue;
+  }
+
+  // ── Wipe everything ───────────────────────────────────────────────────────
+
+  async clearAllData() {
+    await this._ready;
+    const stores = ["sessions", "turns", "pins", "journal", "cfg"];
+    const t = this._db.transaction(stores, "readwrite");
+    for (const s of stores) t.objectStore(s).clear();
   }
 }
 
-// ── Utilities ─────────────────────────────────────────────────────────────
-function _pick(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function _sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
-
-// Weighted random: items = [[value, weight], ...]
-function _weightedChoice(items) {
-  const total  = items.reduce((s, [, w]) => s + w, 0);
-  let rand     = Math.random() * total;
-  for (const [val, w] of items) {
-    rand -= w;
-    if (rand <= 0) return val;
-  }
-  return items[items.length - 1][0];
-}
+// Singleton instance
+export const db = new PEDatabase();

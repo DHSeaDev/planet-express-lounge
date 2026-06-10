@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Planet Express Lounge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Share+Tech+Mono&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0D1117;--bg2:#161B22;--bg3:#21262D;--border:#30363D;--fg:#E6EDF3;--fg2:#8B949E;--fg3:#484F58;--gold:#FFD700;--green:#238636;--system:#E06C75;--radius:10px}
+html{background:var(--bg);color:var(--fg);font-family:'Exo 2',sans-serif;font-size:15px;line-height:1.7}
+body{max-width:720px;margin:0 auto;padding:0 20px 80px}
+.header{text-align:center;padding:48px 0 32px;border-bottom:1px solid var(--border);margin-bottom:40px}
+.ship{font-size:40px;display:block;margin-bottom:12px}
+h1{font-family:'Orbitron',monospace;font-size:22px;font-weight:900;color:var(--gold);letter-spacing:2px;margin-bottom:6px}
+.subtitle{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--fg2);letter-spacing:3px}
+.updated{font-size:11px;color:var(--fg3);margin-top:8px}
+h2{font-family:'Orbitron',monospace;font-size:12px;font-weight:700;color:var(--gold);letter-spacing:2px;text-transform:uppercase;margin:36px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+p{color:var(--fg2);margin-bottom:14px;font-size:14px}
+p strong{color:var(--fg)}
+.summary-box{background:var(--green);background:rgba(35,134,54,.12);border:1px solid var(--green);border-radius:var(--radius);padding:18px 22px;margin-bottom:32px}
+.summary-box p{color:var(--fg);margin:0;font-size:14px}
+.summary-box strong{color:#3fb950}
+.data-table{width:100%;border-collapse:collapse;margin:16px 0 20px;font-size:13px}
+.data-table th{text-align:left;padding:10px 12px;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--fg3);text-transform:uppercase;border-bottom:1px solid var(--border)}
+.data-table td{padding:10px 12px;border-bottom:1px solid var(--bg3);color:var(--fg2);vertical-align:top}
+.data-table td:first-child{color:var(--fg);font-weight:600;white-space:nowrap}
+.data-table tr:last-child td{border-bottom:none}
+code{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--gold)}
+.legal-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;font-size:12px;color:var(--fg2);line-height:1.8;position:relative;margin-top:12px}
+.legal-box p{margin-bottom:10px;font-size:12px}
+.legal-box p:last-child{margin-bottom:0}
+.legal-box strong{color:var(--fg)}
+.zero-box{background:rgba(224,108,117,.08);border:1px solid var(--system);border-radius:var(--radius);padding:16px 20px;margin:16px 0}
+.zero-box p{color:var(--fg);margin:0;font-size:14px}
+footer{text-align:center;padding:32px 0 0;margin-top:48px;border-top:1px solid var(--border);font-size:11px;color:var(--fg3);position:relative}
+.dev-tag{font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--fg3);opacity:.55;margin-top:8px;letter-spacing:1px}
+a{color:var(--gold);text-decoration:none}
+a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="ship">🚀</span>
+  <h1>PRIVACY POLICY</h1>
+  <div class="subtitle">PLANET EXPRESS LOUNGE</div>
+  <div class="updated">Last updated: June 2025 &nbsp;·&nbsp; Version 4.0.1</div>
+</div>
+
+<div class="summary-box">
+  <p><strong>Plain English summary:</strong> Planet Express Lounge stores everything locally on your device. Nothing is collected, tracked, or sent anywhere by the developer. The only network calls this extension ever makes are the ones you initiate directly — your chat messages going to the API provider you chose, using the key you provided.</p>
+</div>
+
+<h2>1. Who we are</h2>
+<p>Planet Express Lounge is an independent, non-commercial Chrome Extension created by <strong>#DHSeaDev</strong> as a personal fan project. There is no company, no website, no organisation, and no commercial entity behind this extension. It is one developer, building something for fun.</p>
+<p>Because there is no organisation collecting data, there is no "we" — there is only the code running in your browser.</p>
+
+<h2>2. What data is stored and where</h2>
+<p>All data this extension creates lives <strong>exclusively on your device</strong>. It is stored in two browser-native locations, both of which you fully control:</p>
+
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>What</th>
+      <th>Where</th>
+      <th>Why</th>
+      <th>You can delete it</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>API keys (Groq / OpenRouter / Gemini)</td>
+      <td><code>chrome.storage.local</code></td>
+      <td>So you don't have to re-enter them every session</td>
+      <td>Settings → Your Data → Clear All, or remove extension</td>
+    </tr>
+    <tr>
+      <td>Conversation history (chat turns)</td>
+      <td>Browser IndexedDB</td>
+      <td>Powers the transcript, Cold Storage pins, and journal log</td>
+      <td>Settings → Your Data → Clear All</td>
+    </tr>
+    <tr>
+      <td>Cold Storage pins</td>
+      <td>Browser IndexedDB</td>
+      <td>Saves exchanges you manually pinned for later</td>
+      <td>Cold Storage tab → Delete button per pin, or Clear All</td>
+    </tr>
+    <tr>
+      <td>Delivery reward count &amp; timestamp</td>
+      <td><code>chrome.storage.local</code></td>
+      <td>Tracks milestone progress and 12-hour cooldown</td>
+      <td>Settings → Your Data → Clear All</td>
+    </tr>
+    <tr>
+      <td>UI preferences (theme, font size, voice speed, cast toggles, chaos mode)</td>
+      <td><code>chrome.storage.local</code></td>
+      <td>Remembers your display and behaviour preferences</td>
+      <td>Settings → Your Data → Clear All</td>
+    </tr>
+    <tr>
+      <td>Provider and model selection</td>
+      <td><code>chrome.storage.local</code></td>
+      <td>Restores your LLM configuration between sessions</td>
+      <td>Settings → Your Data → Clear All</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>That is the complete list. Nothing else is stored. No cookies. No local files outside of Chrome's managed storage areas. No IndexedDB databases other than the one named <code>PlanetExpressLounge</code>.</p>
+
+<h2>3. What data leaves your device</h2>
+<p>The only data that ever leaves your device is the content of your chat messages, sent directly from your browser to the API provider you selected. This happens when you press Send or when Autopilot mode is running.</p>
+<p><strong>The destination is always one of:</strong></p>
+<ul style="color:var(--fg2);font-size:14px;padding-left:20px;margin-bottom:14px;line-height:2">
+  <li><code>https://api.groq.com</code> — if you chose Groq</li>
+  <li><code>https://openrouter.ai</code> — if you chose OpenRouter</li>
+  <li><code>https://generativelanguage.googleapis.com</code> — if you chose Gemini</li>
+</ul>
+<p>These calls are made using your own API key. The developer receives nothing. There is no proxy, no middleware, no relay server. The request goes from your browser directly to the provider.</p>
+<p>What those providers do with your prompts is governed by <strong>their</strong> privacy policies, not this one. Please read:</p>
+<ul style="color:var(--fg2);font-size:14px;padding-left:20px;margin-bottom:14px;line-height:2">
+  <li><a href="https://groq.com/privacy-policy/" target="_blank">Groq Privacy Policy</a></li>
+  <li><a href="https://openrouter.ai/privacy" target="_blank">OpenRouter Privacy Policy</a></li>
+  <li><a href="https://policies.google.com/privacy" target="_blank">Google Privacy Policy</a></li>
+</ul>
+
+<h2>4. What the developer does NOT collect</h2>
+<div class="zero-box">
+  <p>The developer (#DHSeaDev) collects <strong>zero analytics, zero telemetry, zero crash reports, zero usage statistics, zero personal information, and zero conversation data.</strong> There are no tracking pixels, no fingerprinting scripts, no third-party analytics SDKs, and no advertising infrastructure of any kind in this extension. It has no backend server. It has no database. It makes no calls to any server operated by the developer.</p>
+</div>
+
+<h2>5. Permissions explained</h2>
+<p>The extension requests the following Chrome permissions. Each one is used exclusively for the feature described:</p>
+<table class="data-table">
+  <thead>
+    <tr><th>Permission</th><th>Why it is needed</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>storage</code></td>
+      <td>Saves your API keys, preferences, and delivery rewards locally via <code>chrome.storage.local</code>. No data ever leaves your device through this permission.</td>
+    </tr>
+    <tr>
+      <td><code>tts</code></td>
+      <td>Reads character dialogue aloud using Chrome's built-in text-to-speech engine. No audio is recorded or transmitted.</td>
+    </tr>
+    <tr>
+      <td><code>sidePanel</code></td>
+      <td>Opens the extension as a persistent sidebar panel rather than a pop-up window. Required for the layout to function.</td>
+    </tr>
+    <tr>
+      <td><code>contextMenus</code></td>
+      <td>Adds a right-click option to send selected text directly to the crew chat. The selected text is never stored beyond the current session.</td>
+    </tr>
+    <tr>
+      <td>Host: <code>api.groq.com</code></td>
+      <td>Allows the extension to make direct API calls to Groq using your API key when you select Groq as your provider.</td>
+    </tr>
+    <tr>
+      <td>Host: <code>openrouter.ai</code></td>
+      <td>Allows direct API calls to OpenRouter when selected.</td>
+    </tr>
+    <tr>
+      <td>Host: <code>generativelanguage.googleapis.com</code></td>
+      <td>Allows direct API calls to Google Gemini when selected.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>6. Children's privacy</h2>
+<p>This extension is not directed at children. It contains AI-generated character dialogue that may include adult themes when Chaos Mode is enabled. The developer does not knowingly collect any information from anyone, children or adults.</p>
+
+<h2>7. How to delete all data</h2>
+<p>To remove all locally stored data created by this extension:</p>
+<ul style="color:var(--fg2);font-size:14px;padding-left:20px;line-height:2;margin-bottom:14px">
+  <li>Open the extension sidebar → click <strong>⚙️ Settings</strong> → scroll to <strong>Your Data</strong> → click <strong>🗑️ Clear All Data</strong>. This wipes all IndexedDB and chrome.storage.local data.</li>
+  <li>Alternatively, remove the extension from Chrome entirely (<code>chrome://extensions</code> → Remove). Chrome automatically clears all storage associated with the extension on uninstall.</li>
+</ul>
+
+<h2>8. Changes to this policy</h2>
+<p>If this policy changes materially, the "Last updated" date at the top will change and the new version will be linked from the extension's manifest <code>homepage_url</code>. Because there is no account system and no way to contact users, the changelog in the GitHub repository serves as the notification mechanism.</p>
+
+<h2>9. Contact</h2>
+<p>To ask questions about this policy, report a concern, or request removal of any content, open an issue at the GitHub repository linked in the extension manifest. There is no other contact method.</p>
+
+<h2>10. Intellectual property notice</h2>
+<div class="legal-box">
+  <p><strong>Futurama</strong>, all character names, likenesses, catchphrases, and related elements are the intellectual property of <strong>The Walt Disney Company</strong> and its subsidiaries, including <strong>20th Television Animation</strong> (formerly 20th Century Fox Television). The series is distributed by <strong>Hulu</strong>.</p>
+  <p>This is an <strong>independent, non-commercial fan project</strong> created for personal entertainment and educational purposes only. It is not affiliated with, endorsed by, or connected to Disney, Hulu, 20th Television Animation, Matt Groening, or any associated rights holders.</p>
+  <p>No copyright infringement is intended. Character simulations are AI-generated parody under fair use principles (17 U.S.C. § 107). This extension runs entirely in your browser — no conversation data is stored on any external server. Your API key is saved locally in <code>chrome.storage.local</code> and transmitted only to your chosen provider.</p>
+  <p style="color:var(--fg3);font-size:11px">For removal requests, open an issue at the repository linked in the extension manifest.</p>
+</div>
+
+<footer>
+  Planet Express Lounge v4.0.1 &nbsp;·&nbsp; Non-commercial fan project &nbsp;·&nbsp; No data collected
+  <div class="dev-tag">#DHSeaDev</div>
+</footer>
+
+</body>
+</html>

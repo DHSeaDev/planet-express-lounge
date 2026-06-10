@@ -1,316 +1,262 @@
 /**
- * database.js  —  Planet Express Lounge v4.0
- * IndexedDB storage replacing the Python SQLite backend.
- * Provides async methods mirroring the Python DB class interface.
+ * llm.js  —  Planet Express Lounge v4.0
+ * Direct streaming LLM calls to Groq, OpenRouter, and Gemini.
+ * Replaces the Python LLM class and Flask SSE streaming in server.py.
  */
 
-const DB_NAME    = "PlanetExpressLounge";
-const DB_VERSION = 1;
+import { PROVIDER_GROQ, PROVIDER_OR, PROVIDER_GEM, TEMPERATURE } from "./prompts.js";
 
-// ── Open / upgrade ──────────────────────────────────────────────────────────
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+const OR_BASE  = "https://openrouter.ai/api/v1";
+const GEM_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-
-      // sessions — top-level conversation containers
-      if (!db.objectStoreNames.contains("sessions")) {
-        const ss = db.createObjectStore("sessions", { keyPath: "id" });
-        ss.createIndex("ts", "ts", { unique: false });
-      }
-
-      // turns — individual agent utterances, indexed by sessionId
-      if (!db.objectStoreNames.contains("turns")) {
-        const ts = db.createObjectStore("turns", {
-          keyPath: "id",
-          autoIncrement: true,
-        });
-        ts.createIndex("sid", "sid", { unique: false });
-        ts.createIndex("ts",  "ts",  { unique: false });
-      }
-
-      // pins — cold storage saved exchanges
-      if (!db.objectStoreNames.contains("pins")) {
-        const ps = db.createObjectStore("pins", {
-          keyPath: "id",
-          autoIncrement: true,
-        });
-        ps.createIndex("ts", "ts", { unique: false });
-      }
-
-      // journal — mission log entries
-      if (!db.objectStoreNames.contains("journal")) {
-        const js = db.createObjectStore("journal", {
-          keyPath: "id",
-          autoIncrement: true,
-        });
-        js.createIndex("sid", "sid", { unique: false });
-        js.createIndex("ts",  "ts",  { unique: false });
-      }
-
-      // cfg — key/value config store
-      if (!db.objectStoreNames.contains("cfg")) {
-        db.createObjectStore("cfg", { keyPath: "key" });
-      }
-    };
-
-    req.onsuccess = (e) => resolve(e.target.result);
-    req.onerror   = (e) => reject(e.target.error);
-  });
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-function tx(db, stores, mode, fn) {
-  return new Promise((resolve, reject) => {
-    const t = db.transaction(stores, mode);
-    t.onerror   = () => reject(t.error);
-    t.oncomplete = () => {};
-    resolve(fn(t));
-  });
-}
-
-function reqPromise(req) {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
-  });
-}
-
-function cursorAll(store) {
-  return new Promise((resolve, reject) => {
-    const results = [];
-    const req = store.openCursor();
-    req.onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (cursor) { results.push(cursor.value); cursor.continue(); }
-      else resolve(results);
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function indexAll(index) {
-  return new Promise((resolve, reject) => {
-    const results = [];
-    const req = index.openCursor();
-    req.onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (cursor) { results.push(cursor.value); cursor.continue(); }
-      else resolve(results);
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-
-// ── PEDatabase class ────────────────────────────────────────────────────────
-export class PEDatabase {
-  constructor() {
-    this._db = null;
-    this._ready = this._init();
+export class LLMClient {
+  /**
+   * @param {Object} config
+   * @param {string} config.provider  - "Groq" | "OpenRouter" | "Gemini"
+   * @param {string} config.model     - model identifier
+   * @param {string} config.groqKey
+   * @param {string} config.orKey
+   * @param {string} config.gemKey
+   * @param {number} [config.temp]    - temperature (default 0.88)
+   */
+  constructor({ provider, model, groqKey, orKey, gemKey, temp = TEMPERATURE } = {}) {
+    this.provider = provider || PROVIDER_GROQ;
+    this.model    = model;
+    this.groqKey  = groqKey || "";
+    this.orKey    = orKey   || "";
+    this.gemKey   = gemKey  || "";
+    this.temp     = temp;
   }
 
-  async _init() {
-    this._db = await openDB();
+  get label() {
+    return `${this.provider} / ${this.model}`;
   }
 
-  async ready() {
-    await this._ready;
-    return this;
-  }
-
-  // ── Sessions ──────────────────────────────────────────────────────────────
-
-  async newSession(sid, query) {
-    await this._ready;
-    const session = {
-      id:    sid,
-      query: (query || "").slice(0, 500),
-      ts:    new Date().toISOString(),
-      label: "",
-      notes: "",
-    };
-    const t = this._db.transaction("sessions", "readwrite");
-    const req = t.objectStore("sessions").put(session);
-    return reqPromise(req);
-  }
-
-  async getSessions() {
-    await this._ready;
-    const t     = this._db.transaction("sessions", "readonly");
-    const all   = await cursorAll(t.objectStore("sessions"));
-    return all.sort((a, b) => b.ts.localeCompare(a.ts));
-  }
-
-  async deleteSession(sid) {
-    await this._ready;
-    const stores = ["sessions", "turns", "journal"];
-    const t = this._db.transaction(stores, "readwrite");
-    t.objectStore("sessions").delete(sid);
-
-    // Delete turns by sid
-    const turnsIdx = t.objectStore("turns").index("sid");
-    await new Promise((resolve, reject) => {
-      const req = turnsIdx.openCursor(IDBKeyRange.only(sid));
-      req.onsuccess = (e) => {
-        const c = e.target.result;
-        if (c) { c.delete(); c.continue(); } else resolve();
-      };
-      req.onerror = reject;
-    });
-
-    // Delete journal by sid
-    const jIdx = t.objectStore("journal").index("sid");
-    await new Promise((resolve, reject) => {
-      const req = jIdx.openCursor(IDBKeyRange.only(sid));
-      req.onsuccess = (e) => {
-        const c = e.target.result;
-        if (c) { c.delete(); c.continue(); } else resolve();
-      };
-      req.onerror = reject;
-    });
-  }
-
-  async updateNotes(sid, notes) {
-    await this._ready;
-    const t   = this._db.transaction("sessions", "readwrite");
-    const req = t.objectStore("sessions").get(sid);
-    return new Promise((resolve, reject) => {
-      req.onsuccess = () => {
-        const sess = req.result;
-        if (sess) {
-          sess.notes = (notes || "").slice(0, 2000);
-          t.objectStore("sessions").put(sess);
-        }
-        resolve();
-      };
-      req.onerror = reject;
-    });
-  }
-
-  // ── Turns ─────────────────────────────────────────────────────────────────
-
-  async logTurn(sid, agent, content) {
-    await this._ready;
-    const turn = {
-      sid,
-      agent,
-      content: (content || "").slice(0, 4000),
-      ts:      new Date().toISOString(),
-    };
-    const t   = this._db.transaction("turns", "readwrite");
-    const req = t.objectStore("turns").add(turn);
-    await reqPromise(req);
-    await this._trimTurns(sid);
-  }
-
-  async _trimTurns(sid, max = 120) {
-    const all  = await this.getHistory(sid);
-    if (all.length <= max) return;
-    const toDelete = all.slice(0, all.length - max);
-    const t = this._db.transaction("turns", "readwrite");
-    for (const turn of toDelete) {
-      t.objectStore("turns").delete(turn.id);
+  // ── Streaming completion ─────────────────────────────────────────────────
+  /**
+   * Streams tokens from the LLM. Calls onToken(chunk) for each token,
+   * returns the full accumulated text when done.
+   * @param {string} sysPrompt
+   * @param {string} userPrompt
+   * @param {number} maxTokens
+   * @param {Function} onToken - called with each string chunk
+   * @param {AbortSignal} [signal] - cancellation signal
+   * @returns {Promise<string>} accumulated text
+   */
+  async stream(sysPrompt, userPrompt, maxTokens, onToken, signal) {
+    switch (this.provider) {
+      case PROVIDER_GROQ: return this._streamGroq(sysPrompt, userPrompt, maxTokens, onToken, signal);
+      case PROVIDER_OR:   return this._streamOR(sysPrompt, userPrompt, maxTokens, onToken, signal);
+      case PROVIDER_GEM:  return this._streamGem(sysPrompt, userPrompt, maxTokens, onToken, signal);
+      default: throw new Error(`Unknown provider: ${this.provider}`);
     }
   }
 
-  async getHistory(sid) {
-    await this._ready;
-    const t   = this._db.transaction("turns", "readonly");
-    const idx = t.objectStore("turns").index("sid");
-    const all = await indexAll(idx);
-    return all
-      .filter(r => r.sid === sid)
-      .sort((a, b) => a.ts.localeCompare(b.ts));
+  // ── Non-streaming completion (routing, titles, etc.) ────────────────────
+  async complete(sysPrompt, userPrompt, maxTokens = 80) {
+    switch (this.provider) {
+      case PROVIDER_GROQ: return this._completeGroq(sysPrompt, userPrompt, maxTokens);
+      case PROVIDER_OR:   return this._completeOR(sysPrompt, userPrompt, maxTokens);
+      case PROVIDER_GEM:  return this._completeGem(sysPrompt, userPrompt, maxTokens);
+      default: throw new Error(`Unknown provider: ${this.provider}`);
+    }
   }
 
-  // ── Pins (Cold Storage) ───────────────────────────────────────────────────
-
-  async savePin(agent, text, label) {
-    await this._ready;
-    const pin = {
-      agent,
-      text:  (text  || "").slice(0, 2000),
-      label: (label || agent),
-      ts:    new Date().toISOString(),
-    };
-    const t   = this._db.transaction("pins", "readwrite");
-    const req = t.objectStore("pins").add(pin);
-    return reqPromise(req);
+  // ── Groq ──────────────────────────────────────────────────────────────────
+  async _streamGroq(sys, usr, maxTok, onToken, signal) {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      signal,
+      headers: {
+        "Authorization": `Bearer ${this.groqKey}`,
+        "Content-Type":  "application/json",
+      },
+      body: JSON.stringify({
+        model:       this.model,
+        temperature: this.temp,
+        max_tokens:  maxTok,
+        stream:      true,
+        messages:    [{ role: "system", content: sys }, { role: "user", content: usr }],
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`Groq ${res.status}: ${err}`);
+    }
+    return this._consumeSSE(res.body, onToken, signal);
   }
 
-  async getPins() {
-    await this._ready;
-    const t   = this._db.transaction("pins", "readonly");
-    const all = await cursorAll(t.objectStore("pins"));
-    return all.sort((a, b) => b.ts.localeCompare(a.ts));
+  async _completeGroq(sys, usr, maxTok) {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${this.groqKey}`,
+        "Content-Type":  "application/json",
+      },
+      body: JSON.stringify({
+        model:       this.model,
+        temperature: this.temp,
+        max_tokens:  maxTok,
+        messages:    [{ role: "system", content: sys }, { role: "user", content: usr }],
+      }),
+    });
+    if (!res.ok) throw new Error(`Groq ${res.status}: ${await res.text().catch(() => "")}`);
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
   }
 
-  async deletePin(id) {
-    await this._ready;
-    const t   = this._db.transaction("pins", "readwrite");
-    const req = t.objectStore("pins").delete(id);
-    return reqPromise(req);
+  // ── OpenRouter ─────────────────────────────────────────────────────────────
+  async _streamOR(sys, usr, maxTok, onToken, signal) {
+    const res = await fetch(`${OR_BASE}/chat/completions`, {
+      method: "POST",
+      signal,
+      headers: {
+        "Authorization": `Bearer ${this.orKey}`,
+        "Content-Type":  "application/json",
+        "X-Title":        "PELounge",
+      },
+      body: JSON.stringify({
+        model:       this.model,
+        temperature: this.temp,
+        max_tokens:  maxTok,
+        stream:      true,
+        messages:    [{ role: "system", content: sys }, { role: "user", content: usr }],
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`OpenRouter ${res.status}: ${err}`);
+    }
+    return this._consumeSSE(res.body, onToken, signal);
   }
 
-  async deleteAllPins() {
-    await this._ready;
-    const t   = this._db.transaction("pins", "readwrite");
-    const req = t.objectStore("pins").clear();
-    return reqPromise(req);
+  async _completeOR(sys, usr, maxTok) {
+    const res = await fetch(`${OR_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${this.orKey}`,
+        "Content-Type":  "application/json",
+        "X-Title":        "PELounge",
+      },
+      body: JSON.stringify({
+        model:       this.model,
+        temperature: this.temp,
+        max_tokens:  maxTok,
+        messages:    [{ role: "system", content: sys }, { role: "user", content: usr }],
+      }),
+    });
+    if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${await res.text().catch(() => "")}`);
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
   }
 
-  // ── Journal ───────────────────────────────────────────────────────────────
+  // ── Gemini ─────────────────────────────────────────────────────────────────
+  async _streamGem(sys, usr, maxTok, onToken, signal) {
+    const url = `${GEM_BASE}/models/${this.model}:streamGenerateContent?key=${this.gemKey}&alt=sse`;
+    const res = await fetch(url, {
+      method: "POST",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: sys }] },
+        contents:          [{ role: "user", parts: [{ text: usr }] }],
+        generationConfig:  { temperature: this.temp, maxOutputTokens: maxTok },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`Gemini ${res.status}: ${err}`);
+    }
 
-  async saveJournal(sid, content) {
-    await this._ready;
-    const entry = {
-      sid,
-      content: (content || "").slice(0, 2000),
-      ts:      new Date().toISOString(),
-    };
-    const t   = this._db.transaction("journal", "readwrite");
-    const req = t.objectStore("journal").add(entry);
-    return reqPromise(req);
+    // Gemini SSE: each event data is a JSON object with candidates[0].content.parts[0].text
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let acc       = "";
+    let buf       = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || (signal && signal.aborted)) break;
+      buf += decoder.decode(value, { stream: true });
+
+      const lines = buf.split("\n");
+      buf = lines.pop(); // keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const raw = line.slice(5).trim();
+        if (!raw || raw === "[DONE]") continue;
+        try {
+          const obj   = JSON.parse(raw);
+          const chunk = obj?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          if (chunk) { acc += chunk; onToken(chunk); }
+        } catch {}
+      }
+    }
+    return acc;
   }
 
-  async getJournal(sid) {
-    await this._ready;
-    const t   = this._db.transaction("journal", "readonly");
-    const idx = t.objectStore("journal").index("sid");
-    const all = await indexAll(idx);
-    return all
-      .filter(r => r.sid === sid)
-      .sort((a, b) => b.ts.localeCompare(a.ts));
+  async _completeGem(sys, usr, maxTok) {
+    const url = `${GEM_BASE}/models/${this.model}:generateContent?key=${this.gemKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: sys }] },
+        contents:          [{ role: "user", parts: [{ text: usr }] }],
+        generationConfig:  { temperature: this.temp, maxOutputTokens: maxTok },
+      }),
+    });
+    if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text().catch(() => "")}`);
+    const data = await res.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
 
-  // ── Config ─────────────────────────────────────────────────────────────────
+  // ── Shared SSE consumer (OpenAI-compatible format) ─────────────────────────
+  async _consumeSSE(body, onToken, signal) {
+    const reader  = body.getReader();
+    const decoder = new TextDecoder();
+    let acc = "";
+    let buf = "";
 
-  async cfgSet(key, value) {
-    await this._ready;
-    const t   = this._db.transaction("cfg", "readwrite");
-    const req = t.objectStore("cfg").put({ key, value: String(value) });
-    return reqPromise(req);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done || (signal && signal.aborted)) break;
+      buf += decoder.decode(value, { stream: true });
+
+      const lines = buf.split("\n");
+      buf = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const raw = line.slice(5).trim();
+        if (!raw || raw === "[DONE]") continue;
+        try {
+          const chunk = JSON.parse(raw)?.choices?.[0]?.delta?.content || "";
+          if (chunk) { acc += chunk; onToken(chunk); }
+        } catch {}
+      }
+    }
+    return acc;
   }
 
-  async cfgGet(key, defaultValue = "") {
-    await this._ready;
-    const t   = this._db.transaction("cfg", "readonly");
-    const req = t.objectStore("cfg").get(key);
-    const r   = await reqPromise(req);
-    return r ? r.value : defaultValue;
+  // ── Connection test ────────────────────────────────────────────────────────
+  async ping() {
+    const result = await this.complete("Reply with only the word: OK", "ping", 5);
+    return result.includes("OK") || result.length < 20;
   }
 
-  // ── Wipe everything ───────────────────────────────────────────────────────
-
-  async clearAllData() {
-    await this._ready;
-    const stores = ["sessions", "turns", "pins", "journal", "cfg"];
-    const t = this._db.transaction(stores, "readwrite");
-    for (const s of stores) t.objectStore(s).clear();
+  // ── Fetch available OpenRouter models ─────────────────────────────────────
+  static async fetchORModels(apiKey) {
+    try {
+      const res = await fetch(`${OR_BASE}/models`, {
+        headers: { "Authorization": `Bearer ${apiKey}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return (data.data || []).map(m => m.id).sort();
+    } catch {
+      return null;
+    }
   }
 }
-
-// Singleton instance
-export const db = new PEDatabase();

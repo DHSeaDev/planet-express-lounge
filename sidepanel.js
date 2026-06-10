@@ -60,6 +60,19 @@ document.querySelectorAll(".tab").forEach(tab => {
   });
 });
 
+// ── First-run card: Open Settings button ─────────────────────────────────────
+const firstRunSettingsBtn = $("firstRunSettingsBtn");
+if (firstRunSettingsBtn) {
+  firstRunSettingsBtn.addEventListener("click", () => {
+    document.querySelector('.tab[data-tab="settings"]')?.click();
+  });
+}
+
+function _hideFirstRunCard() {
+  const card = $("firstRunCard");
+  if (card) { card.style.display = "none"; }
+}
+
 // ── Status bar ────────────────────────────────────────────────────────────────
 function setStatus(msg, timeout = 0) {
   const bar = $("statusBar");
@@ -114,6 +127,27 @@ function startTurn(agentId) {
   pin.addEventListener("click", () => pinExchange(agentId, body.textContent || ""));
   div.appendChild(pin);
 
+  // Share button — copies plain-text quote to clipboard
+  const shareBtn = document.createElement("button");
+  shareBtn.className   = "pin-btn share-btn";
+  shareBtn.textContent = "🔗";
+  shareBtn.title       = "Share this line";
+  shareBtn.style.marginLeft = "2px";
+  shareBtn.addEventListener("click", () => {
+    const text = body.textContent || "";
+    if (!text.trim()) return;
+    const [charName,,] = (CHARS[agentId] || [agentId]);
+    const plain = `${charName}: "${text.trim()}"
+
+AI fan parody — Planet Express Lounge | #DHSeaDev`;
+    navigator.clipboard.writeText(plain).then(() => {
+      setStatus("📋 Copied to clipboard — ready to share!", 2500);
+      shareBtn.textContent = "✓";
+      setTimeout(() => { shareBtn.textContent = "🔗"; }, 1800);
+    }).catch(() => setStatus("⚠️ Clipboard copy failed.", 2000));
+  });
+  div.appendChild(shareBtn);
+
   log.appendChild(div);
   autoScroll(log);
 
@@ -131,10 +165,35 @@ function receiveToken(chunk, agentId) {
   tts.push(chunk, agentId);
 }
 
+
+// ── Chaos word highlighter ───────────────────────────────────────────────────
+// Applied once per turn on finishTurn(), only when chaosMode is active.
+// Wraps matched words in <mark class="chaos-word"> for red styling.
+// Input text came from textContent — safe to re-insert as innerHTML
+// because we escape it first, then selectively add only our own tags.
+const CHAOS_WORD_RE = /\b(damn|hell|ass|bastard|crap|piss|idiot|moron|loser|stupid|pathetic|worthless|shut up|shut it|bite me|go to hell|screw you|jerk|schmuck|dumbass|dolt|nincompoop|buffoon|imbecile|useless|incompetent|failure|disgrace|insufferable|wretched|deplorable|abysmal|horrific|appalling|catastrophic|disastrous|atrocious)\b/gi;
+
+function _applyChaosHighlight(el) {
+  if (!chaosMode || !el) return;
+  const raw   = el.textContent;
+  // Escape HTML entities from the raw text before injecting as innerHTML
+  const safe  = raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const highlighted = safe.replace(CHAOS_WORD_RE,
+    m => `<mark class="chaos-word">${m}</mark>`
+  );
+  // Only update DOM if something actually changed — avoids unnecessary reflows
+  if (highlighted !== safe) {
+    el.innerHTML = highlighted;
+  }
+}
 function finishTurn(agentId) {
   // Flush any remaining partial sentence in the TTS buffer for this agent.
-  // (e.g. a sentence that ended without terminal punctuation)
   tts.flush(agentId);
+  // Apply chaos word highlighting once the full turn text is assembled
+  _applyChaosHighlight(_activeTurnBody);
   _activeTurnDiv  = null;
   _activeTurnBody = null;
   _activeAgent    = null;
@@ -331,14 +390,28 @@ function resizeInput() {
 if (chatInput) chatInput.addEventListener("input", resizeInput);
 
 async function sendMessage() {
+  // ── If autopilot is running, stop it before sending user message ─────────
+  if (isAutopilot) {
+    _apStopRequested = true;
+    _apPaused = false;
+    if (crew) { crew.resume(); crew.cancel(); }
+    tts.stop();
+    isAutopilot = false;
+    setApState(false);
+    chrome.runtime.sendMessage({ type: "autopilot_stopped" }).catch(()=>{});
+    setTimeout(() => { _apStopRequested = false; }, 800);
+    setStatus("Autopilot stopped — sending your message…");
+    // Brief yield so autopilot state fully unwinds
+    await new Promise(r => setTimeout(r, 80));
+  }
+
   // ── Atomic guard: set isSending synchronously before any await ────────────
-  // This prevents concurrent calls from slipping through during async gaps.
   if (isSending) {
     stopChat();
     return;
   }
-  if (_rateLimited) return;          // currently in rate-limit cooldown
-  if (!_checkRateLimit()) return;    // violated rate limit — hard stop applied
+  if (_rateLimited) return;
+  if (!_checkRateLimit()) return;
 
   if (!crew || !llmClient) {
     setStatus("⚠️ No API key — go to Settings.");
@@ -357,11 +430,32 @@ async function sendMessage() {
 
   if (!currentSid) await _newSession();
   isFirstMessage = false;
+  _hideFirstRunCard();
+  // Mark first run complete so card never shows again
+  chrome.storage.local.get("firstRunComplete").then(s => {
+    if (!s.firstRunComplete) {
+      chrome.storage.local.set({ firstRunComplete: true }).catch(()=>{});
+    }
+  }).catch(()=>{});
 
-  // Render user message
+  // Render user message with pin button
   const userDiv = document.createElement("div");
   userDiv.className = "turn turn-USER";
-  userDiv.innerHTML = `<div class="turn-header" style="color:${CHAR_COLOR.USER}">👤 You</div><div class="turn-body">${escHtml(msg)}</div>`;
+  const userHdr  = document.createElement("div");
+  userHdr.className = "turn-header";
+  userHdr.style.color = CHAR_COLOR.USER;
+  userHdr.textContent = "👤 You";
+  const userBody = document.createElement("div");
+  userBody.className = "turn-body";
+  userBody.textContent = msg;
+  const userPin = document.createElement("button");
+  userPin.className   = "pin-btn";
+  userPin.textContent = "📌";
+  userPin.title       = "Pin to Cold Storage";
+  userPin.addEventListener("click", () => pinExchange("USER", msg));
+  userDiv.appendChild(userHdr);
+  userDiv.appendChild(userBody);
+  userDiv.appendChild(userPin);
   chatlog.appendChild(userDiv);
   autoScroll(chatlog);
 
@@ -537,13 +631,20 @@ async function saveApTranscriptToColdStorage() {
   apSaveBtn.textContent = "⏳"; apSaveBtn.disabled = true;
   try {
     const lines = [];
-    apStream.querySelectorAll(".turn-body").forEach(el => {
+    apStream.querySelectorAll(".turn").forEach(turn => {
+      const hdr  = turn.querySelector(".turn-header")?.textContent?.trim() || "";
+      const body = turn.querySelector(".turn-body")?.textContent?.trim()   || "";
+      if (body) lines.push(hdr ? `${hdr}\n${body}` : body);
+    });
+    // Also capture banners/system bubbles
+    apStream.querySelectorAll(".ap-topic-banner,.ep-title-banner,.system-bubble").forEach(el => {
       const t = el.textContent.trim();
-      if (t) lines.push(t);
+      if (t) lines.unshift(t);  // banners go at top
     });
     if (!lines.length) { setStatus("Nothing to save yet."); return; }
     const date    = new Date().toLocaleString();
-    const text    = `PLANET EXPRESS AUTOPILOT\n${date}\n${"─".repeat(40)}\n\n${lines.join("\n\n")}\n\n${"─".repeat(40)}\nFuturama © Disney / 20th Television Animation`;
+    const DISCLAIMER = "Futurama and all related characters are the intellectual property of The Walt Disney Company / 20th Television Animation. Non-commercial AI-generated parody under fair use (17 U.S.C. § 107). Planet Express Lounge — Unofficial fan project — #DHSeaDev";
+    const text    = `PLANET EXPRESS AUTOPILOT\n${date}\n${"─".repeat(40)}\n\n${lines.join("\n\n")}\n\n${"─".repeat(40)}\n${DISCLAIMER}`;
     await db.savePin("AUTOPILOT", text.slice(0, 2000), `Autopilot — ${date}`);
     setStatus("📌 Episode saved to Cold Storage.", 2500);
     document.querySelector('.tab[data-tab="cold"]')?.click();
@@ -555,7 +656,7 @@ async function saveApTranscriptToColdStorage() {
 }
 
 // ── Chat save ─────────────────────────────────────────────────────────────────
-const chatSaveBtn = $("chatPdfBtn");
+const chatSaveBtn = $("chatSavePin");
 if (chatSaveBtn) chatSaveBtn.addEventListener("click", saveChatToColdStorage);
 
 async function saveChatToColdStorage() {
@@ -570,12 +671,13 @@ async function saveChatToColdStorage() {
     });
     if (!lines.length) { setStatus("Nothing to save yet."); return; }
     const label = `Chat — ${new Date().toLocaleString()}`;
-    await db.savePin("TRANSCRIPT", lines.join("\n\n---\n\n").slice(0, 2000), label);
+    const DISCLAIMER_CHAT = "\n\n───\nFuturama and related characters © The Walt Disney Company / 20th Television Animation. Non-commercial AI parody — fair use (17 U.S.C. § 107). Planet Express Lounge — #DHSeaDev";
+    await db.savePin("TRANSCRIPT", (lines.join("\n\n---\n\n") + DISCLAIMER_CHAT).slice(0, 2000), label);
     setStatus("📌 Chat saved to Cold Storage.", 2500);
   } catch (e) {
     setStatus(`Save error: ${e.message}`);
   } finally {
-    chatSaveBtn.textContent = "📌 SAVE"; chatSaveBtn.disabled = !currentSid;
+    chatSaveBtn.textContent = "📌"; chatSaveBtn.disabled = !currentSid;
   }
 }
 
@@ -644,7 +746,10 @@ function exportPinAsPdf({ agent, label, text, ts }) {
 <h1>${esc(label || agent)}</h1>
 <div class="meta">Character: ${esc(agent)} — Saved: ${date}</div>
 <pre>${esc(text)}</pre>
-<footer>Planet Express Lounge — Fan project — Futurama © Disney / 20th Television Animation</footer>
+<footer>
+  <div style="margin-bottom:3px">Planet Express Lounge — Unofficial fan project — #DHSeaDev</div>
+  <div style="font-style:italic">Futurama and all related characters are the intellectual property of The Walt Disney Company / 20th Television Animation. This is non-commercial AI-generated parody content under fair use (17 U.S.C. § 107). Not affiliated with or endorsed by Disney, Hulu, or any rights holder.</div>
+</footer>
 </body></html>`;
   const blob = new Blob([content], { type: "text/html;charset=utf-8" });
   const url  = URL.createObjectURL(blob);
@@ -761,10 +866,17 @@ async function loadSettings() {
   // Voice speed
   _voiceSpeed = parseFloat(saved.voiceSpeed) || 1.0;
   tts.setRate(_voiceSpeed);
-  const voiceSpeedSlider  = $("voiceSpeedSlider");
-  const voiceSpeedDisplay = $("voiceSpeedDisplay");
-  if (voiceSpeedSlider)  voiceSpeedSlider.value = _voiceSpeed;
-  if (voiceSpeedDisplay) voiceSpeedDisplay.textContent = `${_voiceSpeed.toFixed(1)}x`;
+  const _vsSlider  = $("voiceSpeedSlider");
+  const _vsDisplay = $("voiceSpeedDisplay");
+  if (_vsSlider)  _vsSlider.value = _voiceSpeed;
+  if (_vsDisplay) _vsDisplay.textContent = `${_voiceSpeed.toFixed(1)}x`;
+
+  // WPM text speed
+  _wpmValue = parseInt(saved.wpm) || 200;
+  const _wpmSlider  = $("speedSlider");
+  const _wpmDisplay = $("speedDisplay");
+  if (_wpmSlider)  _wpmSlider.value = _wpmValue;
+  if (_wpmDisplay) _wpmDisplay.textContent = `${_wpmValue} wpm`;
 
   // Provider & model
   const providerSelect = $("providerSelect");
@@ -821,6 +933,10 @@ function _initLLM(provider, model, groqKey, orKey, gemKey) {
   if (!groqKey && !orKey && !gemKey) {
     llmClient = null; crew = null;
     setStatus("⚠️ No API key — go to Settings.");
+    // Show first-run card, explain why Send is disabled
+    const card = $("firstRunCard");
+    if (card) card.style.display = "";
+    if (sendBtn) sendBtn.title = "Go to Settings first to connect your API key";
     return;
   }
   try {
@@ -829,8 +945,12 @@ function _initLLM(provider, model, groqKey, orKey, gemKey) {
     setStatus("✓ Connected: " + llmClient.label, 3000);
     _applyDisabled();
     // Enable UI that requires a live LLM connection
-    if (sendBtn)     sendBtn.disabled = false;
-    if (labInventBtn) labInventBtn.disabled = false;
+    if (sendBtn)          { sendBtn.disabled = false; sendBtn.title = ""; }
+    if (labInventBtn)     labInventBtn.disabled = false;
+    if (chatSummaryBtnEl) chatSummaryBtnEl.disabled = false;
+    if (chatSaveBtn)      chatSaveBtn.disabled = false;
+    // Hide the first-run card — user has a working connection
+    _hideFirstRunCard();
   } catch (e) {
     llmClient = null; crew = null;
     setStatus("⚠️ " + e.message);
@@ -970,12 +1090,21 @@ if (chaosToggleEl) chaosToggleEl.addEventListener("change", () => {
 });
 
 function _applyChaosState(on) {
-  // Visual indicator so user knows chaos is active
-  const label = document.querySelector('label[for="chaosToggle"], .chaos-label');
-  const appEl = document.documentElement;
-  appEl.classList.toggle("chaos-active", on);
+  document.documentElement.classList.toggle("chaos-active", on);
+  // Show/hide both chaos banners (chat + autopilot)
+  const bannerChat = $("chaosBanner");
+  const bannerAp   = $("chaosBannerAp");
+  if (bannerChat) bannerChat.style.display = on ? "block" : "none";
+  if (bannerAp)   bannerAp.style.display   = on ? "block" : "none";
+  // System bubble feedback — only when called from user interaction (not on init)
   if (on) {
-    setStatus("💀 CHAOS MODE: The crew will be significantly ruder and more unhinged.", 4000);
+    setStatus("💀 CHAOS MODE: The crew will be significantly ruder and more unhinged.", 5000);
+    if (chatlog && chatlog.children.length > 0) {
+      appendSystemBubble("💀 Chaos mode enabled. The crew takes no responsibility for what happens next.", "sys-msg", "var(--system)");
+    }
+  } else if (chaosMode !== on) {
+    // Only fire "disabled" bubble if it was previously on (chaosMode is the old value here)
+    appendSystemBubble("✅ Chaos mode disabled. Civilised conversation resumes.", "sys-msg", "var(--user)");
   }
 }
 
@@ -1024,6 +1153,16 @@ if (voiceSpeedSlider) voiceSpeedSlider.addEventListener("input", () => {
   if (voiceSpeedDisplay) voiceSpeedDisplay.textContent = `${_voiceSpeed.toFixed(1)}x`;
   tts.setRate(_voiceSpeed);
   chrome.storage.local.set({ voiceSpeed: _voiceSpeed }).catch(()=>{});
+});
+
+// WPM text speed slider — wired and persisted
+let _wpmValue = 200;
+const speedSliderEl  = $("speedSlider");
+const speedDisplayEl = $("speedDisplay");
+if (speedSliderEl) speedSliderEl.addEventListener("input", () => {
+  _wpmValue = parseInt(speedSliderEl.value);
+  if (speedDisplayEl) speedDisplayEl.textContent = `${_wpmValue} wpm`;
+  chrome.storage.local.set({ wpm: _wpmValue }).catch(()=>{});
 });
 
 // ── Cast grid ─────────────────────────────────────────────────────────────────
@@ -1301,20 +1440,258 @@ function _widgetTogglePause() {
   _widgetDisplay(WIDGET_AFFIRMATIONS[_widgetIdx]);
 }
 
-// ── Lab widget deferred init ──────────────────────────────────────────────────
-// Widgets initialise once when the Lab tab is opened. Uses double rAF to ensure
-// panel is fully visible and SVG layout is computed before init runs.
-let _labWidgetsStarted = false;
+
+
+// ── Episode & Chat Summary Engine ────────────────────────────────────────────
+// Token-efficient summaries (<500 tokens each). Rate-limited to 1 per 3 minutes.
+// Shared cooldown between EP summary and Chat summary.
+
+const SUMMARY_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
+let _lastSummaryTime = 0;
+
+// Token budget: 300 in / 300 out. Input is capped at 300 chars per turn, 12 turns max.
+const SUMMARY_MAX_TOKENS   = 300;
+// Input budget: reserve ~150 tokens for the system prompt + user label,
+// leaving ~850 tokens for dialogue (≈3400 chars at ~4 chars/token).
+// We trim oldest turns — never mid-turn — until we fit.
+const SUMMARY_INPUT_TOKEN_BUDGET = 850;
+const SUMMARY_CHARS_PER_TOKEN    = 4;   // conservative estimate
+
+const EP_SUMMARY_SYS = `You are writing a Planet Express mission debrief. Write a punchy 3-sentence summary covering: the topic debated, which characters drove it, and one memorable moment. Tone: warm, irreverent, like a DVD commentary. Max 80 words.`;
+
+const CHAT_SUMMARY_SYS = `You are writing a Planet Express chat summary. Write 2 sentences covering what was discussed and which character was most useful or most chaotic. Max 50 words. Casual tone.`;
+
+const SUMMARY_DISCLAIMER = "\n\n───\nFuturama and related characters © The Walt Disney Company / 20th Television Animation. Non-commercial AI parody — fair use (17 U.S.C. § 107). Planet Express Lounge — #DHSeaDev";
+
+/**
+ * Generates a summary via LLM and saves it directly to Cold Storage.
+ * Does NOT print into chat or autopilot panels.
+ * Token budget: 300 in / 300 out.
+ */
+async function _generateSummary(panelEl, sysPrompt, summaryLabel, btnEl, btnRestoreLabel) {
+  if (!crew || !llmClient) {
+    setStatus("⚠️ No API key — connect in Settings first.");
+    return;
+  }
+  const now = Date.now();
+  if (now - _lastSummaryTime < SUMMARY_COOLDOWN_MS) {
+    const secLeft = Math.ceil((SUMMARY_COOLDOWN_MS - (now - _lastSummaryTime)) / 1000);
+    setStatus(`⏳ Summary cooldown — ${secLeft}s remaining.`, 3000);
+    return;
+  }
+
+  // Collect full turns — no mid-turn truncation
+  const turns = [];
+  panelEl.querySelectorAll(".ap-topic-banner,.ep-title-banner,.scheme-bubble").forEach(el => {
+    turns.push(el.textContent.trim());
+  });
+  panelEl.querySelectorAll(".turn").forEach(t => {
+    const hdr  = t.querySelector(".turn-header")?.textContent?.trim() || "";
+    const body = t.querySelector(".turn-body")?.textContent?.trim()   || "";
+    if (body) turns.push(`${hdr}: ${body}`);
+  });
+
+  // Trim oldest turns (not content) until total chars fit within token budget
+  const charBudget = SUMMARY_INPUT_TOKEN_BUDGET * SUMMARY_CHARS_PER_TOKEN;
+  while (turns.length > 1 && turns.join("\n\n").length > charBudget) {
+    turns.shift();
+  }
+
+  const snippet = turns.join("\n\n");
+  if (!snippet.trim()) {
+    setStatus("Nothing to summarise yet.");
+    return;
+  }
+
+  if (btnEl) { btnEl.textContent = "⏳"; btnEl.disabled = true; }
+  setStatus("Generating summary…");
+
+  try {
+    let summaryText = "";
+    await crew.llm.stream(
+      sysPrompt,
+      `Crew dialogue:\n\n${snippet}`,
+      SUMMARY_MAX_TOKENS,
+      chunk => { summaryText += chunk; },
+      null
+    );
+
+    if (summaryText.trim()) {
+      _lastSummaryTime = Date.now();
+      const date  = new Date().toLocaleString();
+      const label = `${summaryLabel} — ${date}`;
+      const body  = `${summaryLabel.toUpperCase()}\n${date}\n\n${summaryText.trim()}${SUMMARY_DISCLAIMER}`;
+      await db.savePin("SUMMARY", body.slice(0, 2000), label);
+      setStatus("📋 Summary saved to Cold Storage.", 3000);
+      // Refresh cold storage list if it's visible
+      if (typeof loadPins === "function") loadPins();
+    }
+  } catch (e) {
+    setStatus(`Summary error: ${e.message}`, 3000);
+  } finally {
+    if (btnEl) {
+      btnEl.textContent = btnRestoreLabel || "📋";
+      btnEl.disabled = false;
+    }
+  }
+}
+
+// ── Episode summary button
+const apEpSummaryBtn = $("apEpSummaryBtn");
+if (apEpSummaryBtn) {
+  apEpSummaryBtn.addEventListener("click", () => {
+    _generateSummary(apStream, EP_SUMMARY_SYS, "Episode Summary", apEpSummaryBtn, "📋 EP");
+  });
+}
+
+// ── Chat summary button
+const chatSummaryBtnEl = $("chatSummaryBtn");
+if (chatSummaryBtnEl) {
+  chatSummaryBtnEl.addEventListener("click", () => {
+    _generateSummary(chatlog, CHAT_SUMMARY_SYS, "Chat Summary", chatSummaryBtnEl, "📋");
+  });
+}
+
+// ── CREW_SHOWCASE data (v3 delivery card) ────────────────────────────────────
+const CREW_SHOWCASE = {
+  FRY:   { name:"Philip J. Fry",             color:"#FF6B35", icon:"🍕",
+    quote:"I'm not just some delivery boy. I'm a man frozen in time, thawed out a thousand years later, and still doing the same job. That's not failure — that's commitment.",
+    accessories:[{id:"pizza",label:"Leftover Pizza",icon:"🍕",unlockAt:1,desc:"Constant across 1000 years."},{id:"slurm",label:"Slurm Can",icon:"🧃",unlockAt:25,desc:"Highly addictive!"},{id:"holophonor",label:"Holophonor",icon:"🎵",unlockAt:50,desc:"Soul of a musician."},{id:"seymour",label:"Seymour's Collar",icon:"🐶",unlockAt:100,desc:"He waited. Every day."}]},
+  LEELA: { name:"Turanga Leela",             color:"#C678DD", icon:"👁️",
+    quote:"I spent my whole life thinking I was alone. One eye. No family. Turns out my parents were watching from the sewers the whole time. Still processing that.",
+    accessories:[{id:"wristband",label:"Wrist Thingy",icon:"⌚",unlockAt:1,desc:"Multi-function. Mostly ignored."},{id:"boot",label:"Steel-Toed Boot",icon:"👢",unlockAt:25,desc:"Applied to Fry ~400 times."},{id:"eye",label:"Eye Patch",icon:"👁️",unlockAt:50,desc:"Not that you needed reminding."},{id:"nibbler",label:"Nibbler's Basket",icon:"🧺",unlockAt:100,desc:"He was here the whole time."}]},
+  BENDER:{ name:"Bender Bending Rodríguez",  color:"#ABB2BF", icon:"🤖",
+    quote:"I've been a cook, a folk singer, a crime boss, a were-car, and a god. I have been worshipped. And yet they still make me do the dishes.",
+    accessories:[{id:"antenna",label:"Antenna",icon:"📡",unlockAt:1,desc:"Reception poor. Personality worse."},{id:"cigar",label:"Cigar",icon:"🚬",unlockAt:25,desc:"For any and all occasions."},{id:"crown",label:"Mastermind Crown",icon:"👑",unlockAt:50,desc:"Self-appointed."},{id:"chest",label:"Chest Hatch",icon:"🗝️",unlockAt:100,desc:"Contents: unknowable. Stolen."}]},
+  PROF:  { name:"Professor Hubert J. Farnsworth", color:"#E5C07B", icon:"🧪",
+    quote:"Good news, everyone. I've invented something that will almost certainly not kill you in a way science cannot yet explain.",
+    accessories:[{id:"flask",label:"Mystery Flask",icon:"⚗️",unlockAt:1,desc:"DO NOT SMELL."},{id:"doomsday",label:"Doomsday Device",icon:"💣",unlockAt:25,desc:"Which button? Doesn't matter."},{id:"deathclock",label:"Death Clock",icon:"⏰",unlockAt:50,desc:"Showing 'now'."},{id:"wernstrom",label:"Wernstrom Dart",icon:"🎯",unlockAt:100,desc:"Wernstrooooom!"}]},
+  AMY:   { name:"Amy Wong",                  color:"#FF79C6", icon:"💅",
+    quote:"People think I'm just a rich girl with bad coordination. I have a PhD. I also piloted the Planet Express ship into a black hole and out the other side. Nobody said thank you.",
+    accessories:[{id:"scrunchie",label:"Pink Scrunchie",icon:"🩷",unlockAt:1,desc:"Kif thinks it looks great."},{id:"phone",label:"Holographic Phone",icon:"📱",unlockAt:25,desc:"Kif is caller #1."},{id:"martian",label:"Mars U Pennant",icon:"🏫",unlockAt:50,desc:"She earned the degree."},{id:"diploma",label:"Medical Degree",icon:"📜",unlockAt:100,desc:"Yes, a real one."}]},
+  ZOIDBERG:{name:"Dr. John A. Zoidberg",     color:"#56B6C2", icon:"🦞",
+    quote:"They say I'm a bad doctor. They say I eat from dumpsters. They say my advice once caused a man to grow a spleen in his elbow. But I have friends now and that is everything.",
+    accessories:[{id:"stethoscope",label:"Stethoscope",icon:"🩺",unlockAt:1,desc:"Primarily worn as necklace."},{id:"sandwich",label:"Discarded Sandwich",icon:"🥪",unlockAt:25,desc:"Found. Mostly."},{id:"diploma_z",label:"Zoidberg's Degree",icon:"🎓",unlockAt:50,desc:"Accreditation under review."},{id:"hooray",label:"Hooray Banner",icon:"🎉",unlockAt:100,desc:"Zoidberg has a friend!"}]},
+};
+const SHOWCASE_ORDER = ["FRY","LEELA","BENDER","PROF","AMY","ZOIDBERG"];
+
+async function buildWelcomeCard() {
+  const stored    = await chrome.storage.local.get(["deliveryCount"]);
+  const openCount = stored.deliveryCount || 0;
+  const charKey   = SHOWCASE_ORDER[(openCount - 1) % SHOWCASE_ORDER.length] || "FRY";
+  const showcase  = CREW_SHOWCASE[charKey] || CREW_SHOWCASE.FRY;
+  if (!chatlog) return;
+
+  chatlog.querySelector(".welcome-card")?.remove();
+
+  const card = document.createElement("div");
+  card.className = "welcome-card";
+  card.style.setProperty("--char-color", showcase.color);
+
+  const dismiss = document.createElement("button");
+  dismiss.className   = "welcome-dismiss";
+  dismiss.textContent = "✕";
+  dismiss.title       = "Dismiss";
+  dismiss.addEventListener("click", () => card.remove());
+  card.appendChild(dismiss);
+
+  const header = document.createElement("div");
+  header.className = "welcome-header";
+  header.innerHTML = `
+    <span class="welcome-icon">${showcase.icon}</span>
+    <div class="welcome-name-block">
+      <div class="welcome-char-name">${showcase.name}</div>
+      <div class="welcome-counter">
+        <span class="welcome-counter-num">#${openCount}</span>
+        <span class="welcome-counter-label"> DELIVERIES LOGGED</span>
+      </div>
+    </div>`;
+  card.appendChild(header);
+
+  const quoteEl = document.createElement("div");
+  quoteEl.className   = "welcome-quote";
+  quoteEl.textContent = `"${showcase.quote}"`;
+  card.appendChild(quoteEl);
+
+  const accSection = document.createElement("div");
+  accSection.className = "welcome-acc-section";
+
+  const accTitleRow = document.createElement("div");
+  accTitleRow.className = "welcome-acc-title-row";
+  const accTitle = document.createElement("div");
+  accTitle.className   = "welcome-acc-title";
+  accTitle.textContent = "CARGO HOLD";
+  accTitleRow.appendChild(accTitle);
+
+  const nextLocked = showcase.accessories.find(a => openCount < a.unlockAt);
+  const mechNote   = document.createElement("div");
+  mechNote.className = "welcome-acc-note";
+  mechNote.textContent = nextLocked
+    ? `${nextLocked.unlockAt - openCount} more to unlock ${nextLocked.label}.`
+    : "All cargo unlocked. The hold is full.";
+  accTitleRow.appendChild(mechNote);
+  accSection.appendChild(accTitleRow);
+
+  const accRow = document.createElement("div");
+  accRow.className = "welcome-acc-row";
+  for (const acc of showcase.accessories) {
+    const unlocked = openCount >= acc.unlockAt;
+    const item     = document.createElement("div");
+    item.className = `welcome-acc-item ${unlocked ? "unlocked" : "locked"}`;
+    item.title     = unlocked ? acc.desc : `Unlocks after ${acc.unlockAt} deliveries`;
+    if (unlocked && openCount === acc.unlockAt) item.classList.add("just-unlocked");
+    const iconEl  = document.createElement("div");
+    iconEl.className   = "welcome-acc-icon";
+    iconEl.textContent = unlocked ? acc.icon : "🔒";
+    const labelEl  = document.createElement("div");
+    labelEl.className  = "welcome-acc-label";
+    labelEl.textContent = unlocked
+      ? (openCount === acc.unlockAt ? "✨ " + acc.label : acc.label)
+      : acc.unlockAt + " deliveries";
+    item.appendChild(iconEl);
+    item.appendChild(labelEl);
+    accRow.appendChild(item);
+  }
+  accSection.appendChild(accRow);
+  card.appendChild(accSection);
+  chatlog.prepend(card);
+}
+
 function _startLabWidgets() {
   if (_labWidgetsStarted) return;
   _labWidgetsStarted = true;
   requestAnimationFrame(() => requestAnimationFrame(() => {
     try { typeof _initTracker     === "function" && _initTracker();     } catch(e) { console.error("Tracker:", e); }
-    try { typeof _initSlot        === "function" && _initSlot();        } catch(e) { console.error("Slot:", e); }
     try { typeof _initBenderGod   === "function" && _initBenderGod();   } catch(e) { console.error("BenderGod:", e); }
     try { typeof _initMorboLinda  === "function" && _initMorboLinda();  } catch(e) { console.error("MorboLinda:", e); }
     try { typeof _initNeutralNews === "function" && _initNeutralNews(); } catch(e) { console.error("NeutralNews:", e); }
+    _wireWidgetButtons();
   }));
+}
+
+// ── Wire all widget buttons via addEventListener (CSP blocks onclick=) ────────
+// Called once after all _init functions have run and exposed their window.w*_ globals.
+function _wireWidgetButtons() {
+  const wire = (id, fn) => {
+    const el = document.getElementById(id);
+    if (el && typeof fn === "function") {
+      el.removeEventListener("click", fn);
+      el.addEventListener("click", fn);
+    }
+  };
+  // Tracker
+  wire("wt-new-delivery-btn",() => typeof window.wt_newDelivery === "function" && window.wt_newDelivery());
+  // Bender / God
+  wire("wbg-prev-btn",  () => typeof window.wbg_bgNav      === "function" && window.wbg_bgNav(-1));
+  wire("wbg-bg-play",   () => typeof window.wbg_bgToggleAuto === "function" && window.wbg_bgToggleAuto());
+  wire("wbg-next-btn",  () => typeof window.wbg_bgNav      === "function" && window.wbg_bgNav(1));
+  // Morbo / Linda
+  wire("wml-prev-btn",  () => typeof window.wml_mbNav      === "function" && window.wml_mbNav(-1));
+  wire("wml-mb-play",   () => typeof window.wml_mbToggleAuto === "function" && window.wml_mbToggleAuto());
+  wire("wml-next-btn",  () => typeof window.wml_mbNav      === "function" && window.wml_mbNav(1));
+  // Neutral news
+  wire("wnn-next-btn",  () => typeof window.wnn_nextStory  === "function" && window.wnn_nextStory());
+  wire("wnn-auto-btn",  () => typeof window.wnn_toggleAuto === "function" && window.wnn_toggleAuto());
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -1330,7 +1707,18 @@ async function init() {
   const count  = ((stored.tabOpenCount) || 0) + 1;
   chrome.storage.local.set({ tabOpenCount: count }).catch(()=>{});
 
-  setStatus("Welcome aboard! Enter a topic, or hit Autopilot.");
+  // If returning user with a working connection, hide the first-run card immediately
+  const firstRunData = await chrome.storage.local.get("firstRunComplete");
+  if (firstRunData.firstRunComplete && llmClient) {
+    _hideFirstRunCard();
+  }
+
+  // Build the delivery welcome card
+  if (llmClient || !firstRunData.firstRunComplete) {
+    buildWelcomeCard().catch(() => {});
+  }
+
+  setStatus(llmClient ? "Welcome back! Enter a topic, or hit Autopilot." : "Welcome aboard! Go to ⚙️ Settings to connect.");
   // Apply chaos visual state now that _applyChaosState is defined
   _applyChaosState(chaosMode);
 }
@@ -1662,220 +2050,6 @@ newDelivery();
   window.wt_cycleQuote = cycleQuote;
 }
 
-function _initSlot() {
-const SYMS=['🤖','👁️','🚀','🦞','🍺','⭐','🌀','💫'];
-const WEIGHTS=[2,3,5,7,10,12,14,15];
-const PAYOUTS={
-  '🤖🤖🤖':300,'👁️👁️👁️':200,'🚀🚀🚀':120,
-  '🦞🦞🦞':80,'🍺🍺🍺':50,'⭐⭐⭐':30
-};
-const REEL_LEN=20;
-
-let coins=0,bet=5,spinning=false,ptOpen=false;
-let totalSpins=0,totalWon=0,bestWin=0,elapsed=0;
-let reelData=[[],[],[]];
-let finalIdx=[0,0,0];
-
-function weighted(){
-  const tot=WEIGHTS.reduce((a,b)=>a+b,0);
-  let r=Math.random()*tot;
-  for(let i=0;i<WEIGHTS.length;i++){r-=WEIGHTS[i];if(r<=0)return i;}
-  return SYMS.length-1;
-}
-
-function buildReel(){
-  const arr=[];
-  for(let i=0;i<REEL_LEN;i++) arr.push(SYMS[weighted()]);
-  return arr;
-}
-
-function renderReel(id,data,stopIdx,instant){
-  const inner=document.getElementById('ri'+id);
-  const html=data.map(s=>`<div class="reel-symbol">${s}</div>`).join('');
-  inner.innerHTML=html+`<div class="reel-symbol">${data[0]}</div>`;
-  const cellH=72;
-  const targetTop=-(stopIdx*cellH);
-  if(instant){inner.style.transition='none';inner.style.top=targetTop+'px';}
-  else{inner.style.top=targetTop+'px';}
-}
-
-function initReels(){
-  for(let i=0;i<3;i++){
-    reelData[i]=buildReel();
-    finalIdx[i]=0;
-    renderReel(i,reelData[i],0,true);
-  }
-}
-
-function setMsg(txt,color){
-  const el=document.getElementById('ws-msg');
-  el.textContent=txt;
-  el.style.color=color||'#c8a8ff';
-}
-
-function updateCoins(){
-  document.getElementById('ws-coin-count').textContent=Math.floor(coins);
-  const btn=document.getElementById('ws-spin-btn');
-  btn.disabled=spinning||coins<bet;
-}
-
-function setBet(b){
-  bet=b;
-  document.querySelectorAll('.bet-btn').forEach(el=>{
-    el.classList.toggle('active',parseInt(el.dataset.bet)===b);
-  });
-  updateCoins();
-}
-
-function togglePay(){
-  ptOpen=!ptOpen;
-  document.getElementById('ws-paytable').classList.toggle('open',ptOpen);
-}
-
-function spinReel(reelId,duration,targetSym){
-  return new Promise(resolve=>{
-    const data=reelData[reelId];
-    const inner=document.getElementById('ri'+reelId);
-    const cellH=72;
-    const totalCells=data.length;
-    let startTime=null;
-    let startPos=finalIdx[reelId];
-
-    const extraSpins=Math.floor(duration/80)+totalCells;
-    const targetPos=(startPos+extraSpins)%totalCells;
-    let landIdx=data.indexOf(targetSym,0);
-    if(landIdx<0) landIdx=0;
-    const overshoot=((landIdx-startPos)+totalCells*10)%totalCells;
-    const totalSteps=Math.floor(extraSpins/totalCells)*totalCells+overshoot;
-
-    inner.style.transition='none';
-
-    let current=startPos;
-    const step=()=>{
-      current=(current+1)%totalCells;
-      inner.style.transition='top 0.08s linear';
-      inner.style.top=-(current*cellH)+'px';
-      if(current===landIdx){
-        finalIdx[reelId]=landIdx;
-        setTimeout(resolve,100);
-      } else {
-        const delay=spinning?Math.max(40,80-totalSteps*0.5):60;
-        setTimeout(step,60);
-      }
-    };
-
-    let steps=0;
-    const maxSteps=totalSteps;
-    const fastStep=()=>{
-      steps++;
-      current=(current+1)%totalCells;
-      inner.style.transition='top 0.07s linear';
-      inner.style.top=-(current*cellH)+'px';
-      if(steps>=maxSteps&&current===landIdx){
-        finalIdx[reelId]=landIdx;
-        setTimeout(resolve,120);
-      } else if(steps>=maxSteps-5){
-        setTimeout(fastStep,90);
-      } else {
-        setTimeout(fastStep,55);
-      }
-    };
-    fastStep();
-  });
-}
-
-async function spin(){
-  if(spinning||coins<bet) return;
-  spinning=true;
-  coins-=bet;
-  updateCoins();
-  setMsg('SPINNING...','#c8a8ff');
-  document.getElementById('ws-spin-btn').disabled=true;
-
-  const results=[SYMS[weighted()],SYMS[weighted()],SYMS[weighted()]];
-
-  const p0=spinReel(0,800,results[0]);
-  await new Promise(r=>setTimeout(r,200));
-  const p1=spinReel(1,900,results[1]);
-  await new Promise(r=>setTimeout(r,200));
-  const p2=spinReel(2,1000,results[2]);
-  await Promise.all([p0,p1,p2]);
-
-  const key=results.join('');
-  let win=0;
-  if(PAYOUTS[key]) win=PAYOUTS[key];
-  else if(results[0]===results[1]||results[1]===results[2]||results[0]===results[2]) win=bet;
-
-  totalSpins++;
-  if(win>0){
-    coins+=win;
-    totalWon+=win;
-    if(win>bestWin) bestWin=win;
-    if(win>=200) setMsg('JACKPOT! +'+win+'c','#f0b429');
-    else if(win>=80) setMsg('BIG WIN! +'+win+'c','#f0b429');
-    else if(win>=30) setMsg('WINNER! +'+win+'c','#88ff88');
-    else setMsg('WIN +'+win+'c','#a8d8a8');
-  } else {
-    const taunts=['TRY AGAIN','NO LUCK','KEEP GOING','BITE MY SHINY...','SO CLOSE'];
-    setMsg(taunts[Math.floor(Math.random()*taunts.length)],'#7050a0');
-  }
-
-  document.getElementById('ws-s-spins').textContent=totalSpins;
-  document.getElementById('ws-s-won').textContent=totalWon;
-  document.getElementById('ws-s-best').textContent=bestWin;
-  updateCoins();
-  spinning=false;
-  document.getElementById('ws-spin-btn').disabled=coins<bet;
-}
-
-initReels();
-
-// ── Restore saved coins from chrome.storage.local ─────────────────────────
-// Coins accumulate at 1/sec and persist between sessions. Max 10000.
-chrome.storage.local.get(['slotCoins']).then(saved => {
-  if (saved.slotCoins && !isNaN(saved.slotCoins)) {
-    coins = Math.min(parseInt(saved.slotCoins), 10000);
-  }
-  updateCoins();
-  if (coins >= bet) {
-    setMsg('READY TO PLAY!','#88ff88');
-  } else {
-    setMsg('EARN COINS TO PLAY','#a080c0');
-  }
-});
-
-let _slotSaveTimer = null;
-function _saveCoins() {
-  clearTimeout(_slotSaveTimer);
-  _slotSaveTimer = setTimeout(() => {
-    chrome.storage.local.set({ slotCoins: Math.floor(coins) }).catch(()=>{});
-  }, 2000);
-}
-
-setInterval(()=>{
-  coins=Math.min(coins+1,10000);
-  elapsed++;
-  const m=Math.floor(elapsed/60);
-  const s=elapsed%60;
-  document.getElementById('ws-s-time').textContent=m>0?m+'m'+s+'s':s+'s';
-  updateCoins();
-  _saveCoins();
-  if(!spinning&&coins>=bet&&document.getElementById('ws-msg').textContent==='EARN COINS TO PLAY'){
-    setMsg('READY TO PLAY!','#88ff88');
-  }
-},1000);
-  // Expose onclick handlers
-  window.ws_weighted = weighted;
-  window.ws_buildReel = buildReel;
-  window.ws_renderReel = renderReel;
-  window.ws_initReels = initReels;
-  window.ws_setMsg = setMsg;
-  window.ws_updateCoins = updateCoins;
-  window.ws_setBet = setBet;
-  window.ws_togglePay = togglePay;
-  window.ws_spinReel = spinReel;
-  window.ws_spin = spin;
-}
 
 function _initBenderGod() {
 const godLines=[
