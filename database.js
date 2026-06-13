@@ -1,11 +1,11 @@
 /**
- * database.js  —  Planet Express Lounge v4.0
+ * database.js  —  Planet Express Lounge
  * IndexedDB storage replacing the Python SQLite backend.
  * Provides async methods mirroring the Python DB class interface.
  */
 
 const DB_NAME    = "PlanetExpressLounge";
-const DB_VERSION = 1;
+const DB_VERSION = 2;  // v2: adds inventions store
 
 // ── Open / upgrade ──────────────────────────────────────────────────────────
 function openDB() {
@@ -40,19 +40,22 @@ function openDB() {
         ps.createIndex("ts", "ts", { unique: false });
       }
 
-      // journal — mission log entries
-      if (!db.objectStoreNames.contains("journal")) {
-        const js = db.createObjectStore("journal", {
-          keyPath: "id",
-          autoIncrement: true,
-        });
-        js.createIndex("sid", "sid", { unique: false });
-        js.createIndex("ts",  "ts",  { unique: false });
-      }
-
       // cfg — key/value config store
       if (!db.objectStoreNames.contains("cfg")) {
         db.createObjectStore("cfg", { keyPath: "key" });
+      }
+
+      // inventions — Patent Office ledger (added v2)
+      // Schema: { id:autoIncrement, name:string, text:string, critique:string,
+      //           critiqueAgent:string, rating:'success'|'failure'|'unknown',
+      //           isMega:boolean, isScrap:boolean, ts:ISOString }
+      if (!db.objectStoreNames.contains("inventions")) {
+        const iv = db.createObjectStore("inventions", {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+        iv.createIndex("ts",     "ts",     { unique: false });
+        iv.createIndex("rating", "rating", { unique: false });
       }
     };
 
@@ -164,17 +167,6 @@ export class PEDatabase {
       };
       req.onerror = reject;
     });
-
-    // Transaction 3: delete journal by sid (separate tx for same reason)
-    const t3 = this._db.transaction("journal", "readwrite");
-    await new Promise((resolve, reject) => {
-      const req = t3.objectStore("journal").index("sid").openCursor(IDBKeyRange.only(sid));
-      req.onsuccess = (e) => {
-        const c = e.target.result;
-        if (c) { c.delete(); c.continue(); } else resolve();
-      };
-      req.onerror = reject;
-    });
   }
 
   async updateNotes(sid, notes) {
@@ -236,7 +228,7 @@ export class PEDatabase {
     await this._ready;
     const pin = {
       agent,
-      text:  (text  || "").slice(0, 2000),
+      text:  (text  || "").slice(0, 6000), // ~1000 tokens, enough for episode summaries
       label: (label || agent),
       ts:    new Date().toISOString(),
     };
@@ -266,30 +258,6 @@ export class PEDatabase {
     return reqPromise(req);
   }
 
-  // ── Journal ───────────────────────────────────────────────────────────────
-
-  async saveJournal(sid, content) {
-    await this._ready;
-    const entry = {
-      sid,
-      content: (content || "").slice(0, 2000),
-      ts:      new Date().toISOString(),
-    };
-    const t   = this._db.transaction("journal", "readwrite");
-    const req = t.objectStore("journal").add(entry);
-    return reqPromise(req);
-  }
-
-  async getJournal(sid) {
-    await this._ready;
-    const t   = this._db.transaction("journal", "readonly");
-    const idx = t.objectStore("journal").index("sid");
-    const all = await indexAll(idx);
-    return all
-      .filter(r => r.sid === sid)
-      .sort((a, b) => b.ts.localeCompare(a.ts));
-  }
-
   // ── Config ─────────────────────────────────────────────────────────────────
 
   async cfgSet(key, value) {
@@ -309,9 +277,70 @@ export class PEDatabase {
 
   // ── Wipe everything ───────────────────────────────────────────────────────
 
+  // ── Inventions (Patent Office) ────────────────────────────────────────────
+
+  async saveInvention(name, text, critique, critiqueAgent, rating, isMega = false, isRecycled = false) {
+    await this._ready;
+    const record = {
+      name:         (name         || "").slice(0, 200),
+      text:         (text         || "").slice(0, 1000),
+      critique:     (critique     || "").slice(0, 500),
+      critiqueAgent:(critiqueAgent|| ""),
+      rating,          // 'success' | 'failure' | 'unknown'
+      isMega:        !!isMega,
+      isRecycled:    !!isRecycled,
+      isScrap:       false,  // set explicitly via scrapInvention() — never auto-set
+      ts:            new Date().toISOString(),
+    };
+    const t   = this._db.transaction("inventions", "readwrite");
+    const req = t.objectStore("inventions").add(record);
+    return reqPromise(req);
+  }
+
+  /** Move an invention to the Scrap Heap (user-initiated). Does not delete it. */
+  async scrapInvention(id) {
+    await this._ready;
+    const t    = this._db.transaction("inventions", "readwrite");
+    const store= t.objectStore("inventions");
+    const get  = store.get(id);
+    return new Promise((resolve, reject) => {
+      get.onsuccess = () => {
+        const rec = get.result;
+        if (!rec) return resolve(false);
+        rec.isScrap = true;
+        rec.scrappedAt = new Date().toISOString();
+        const put = store.put(rec);
+        put.onsuccess = () => resolve(true);
+        put.onerror   = () => reject(put.error);
+      };
+      get.onerror = () => reject(get.error);
+    });
+  }
+
+  async getInventions() {
+    await this._ready;
+    const t   = this._db.transaction("inventions", "readonly");
+    const all = await cursorAll(t.objectStore("inventions"));
+    return all.sort((a, b) => b.ts.localeCompare(a.ts));
+  }
+
+  async deleteInvention(id) {
+    await this._ready;
+    const t   = this._db.transaction("inventions", "readwrite");
+    const req = t.objectStore("inventions").delete(id);
+    return reqPromise(req);
+  }
+
+  async clearInventions() {
+    await this._ready;
+    const t   = this._db.transaction("inventions", "readwrite");
+    const req = t.objectStore("inventions").clear();
+    return reqPromise(req);
+  }
+
   async clearAllData() {
     await this._ready;
-    const stores = ["sessions", "turns", "pins", "journal", "cfg"];
+    const stores = ["sessions", "turns", "pins", "cfg", "inventions"];
     const t = this._db.transaction(stores, "readwrite");
     for (const s of stores) t.objectStore(s).clear();
   }

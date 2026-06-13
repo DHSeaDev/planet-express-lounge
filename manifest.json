@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Planet Express Lounge",
-  "version": "4.0.1",
+  "version": "4.1.0",
   "description": "Chat with the Futurama crew. AI-powered sitcom engine \u2014 no server required. Unofficial fan project.",
   "homepage_url": "https://github.com/dhseadev/planet-express-lounge",
   "minimum_chrome_version": "114",
@@ -11,7 +11,12 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Open Planet Express Sidebar"
+    "default_title": "Open Planet Express Sidebar",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "side_panel": {
     "default_path": "sidepanel.html"
@@ -20,27 +25,14 @@
     "storage",
     "contextMenus",
     "sidePanel",
-    "tts"
+    "tts",
+    "alarms"
   ],
   "host_permissions": [
     "https://api.groq.com/*",
     "https://openrouter.ai/*",
-    "https://generativelanguage.googleapis.com/*"
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "welcome.html",
-        "widget_tracker.html",
-        "widget_bender_god.html",
-        "widget_morbo_linda.html",
-        "widget_neutral_news.html",
-        "privacy_policy.html"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.elevenlabs.io/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -56,7 +48,7 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com"
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com"
   },
   "author": "#DHSeaDev \u2014 fan project"
 }

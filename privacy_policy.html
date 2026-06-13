@@ -22,10 +22,14 @@ p strong{color:var(--fg)}
 .summary-box{background:var(--green);background:rgba(35,134,54,.12);border:1px solid var(--green);border-radius:var(--radius);padding:18px 22px;margin-bottom:32px}
 .summary-box p{color:var(--fg);margin:0;font-size:14px}
 .summary-box strong{color:#3fb950}
-.data-table{width:100%;border-collapse:collapse;margin:16px 0 20px;font-size:13px}
-.data-table th{text-align:left;padding:10px 12px;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--fg3);text-transform:uppercase;border-bottom:1px solid var(--border)}
-.data-table td{padding:10px 12px;border-bottom:1px solid var(--bg3);color:var(--fg2);vertical-align:top}
-.data-table td:first-child{color:var(--fg);font-weight:600;white-space:nowrap}
+.data-table{width:100%;max-width:680px;table-layout:fixed;border-collapse:collapse;margin:16px 0 20px;font-size:12px}
+.data-table th{text-align:left;padding:8px 10px;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--fg3);text-transform:uppercase;border-bottom:1px solid var(--border)}
+.data-table td{padding:8px 10px;border-bottom:1px solid var(--bg3);color:var(--fg2);vertical-align:top;word-wrap:break-word;overflow-wrap:break-word}
+.data-table td:first-child{color:var(--fg);font-weight:600}
+.data-table th:nth-child(1),.data-table td:nth-child(1){width:26%}
+.data-table th:nth-child(2),.data-table td:nth-child(2){width:16%}
+.data-table th:nth-child(3),.data-table td:nth-child(3){width:38%}
+.data-table th:nth-child(4),.data-table td:nth-child(4){width:20%}
 .data-table tr:last-child td{border-bottom:none}
 code{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--gold)}
 .legal-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;font-size:12px;color:var(--fg2);line-height:1.8;position:relative;margin-top:12px}
@@ -46,7 +50,7 @@ a:hover{text-decoration:underline}
   <span class="ship">🚀</span>
   <h1>PRIVACY POLICY</h1>
   <div class="subtitle">PLANET EXPRESS LOUNGE</div>
-  <div class="updated">Last updated: June 2025 &nbsp;·&nbsp; Version 4.0.1</div>
+  <div class="updated">Last updated: June 2026</div>
 </div>
 
 <div class="summary-box">
@@ -54,7 +58,7 @@ a:hover{text-decoration:underline}
 </div>
 
 <h2>1. Who we are</h2>
-<p>Planet Express Lounge is an independent, non-commercial Chrome Extension created by <strong>#DHSeaDev</strong> as a personal fan project. There is no company, no website, no organisation, and no commercial entity behind this extension. It is one developer, building something for fun.</p>
+<p>Planet Express Lounge is an independent, non-commercial Chrome Extension created by <strong>#DHSeaDev</strong> as a personal fan project. There is no company, organisation, or commercial entity behind this extension — it is one developer, building something for fun. The developer maintains a personal portfolio website showcasing this and other projects; that site is informational only (a career portfolio), is not part of this extension, does not link to or communicate with it, and does not collect data on the extension's behalf.</p>
 <p>Because there is no organisation collecting data, there is no "we" — there is only the code running in your browser.</p>
 
 <h2>2. What data is stored and where</h2>
@@ -71,7 +75,7 @@ a:hover{text-decoration:underline}
   </thead>
   <tbody>
     <tr>
-      <td>API keys (Groq / OpenRouter / Gemini)</td>
+      <td>API keys (Groq / OpenRouter / Gemini / ElevenLabs)</td>
       <td><code>chrome.storage.local</code></td>
       <td>So you don't have to re-enter them every session</td>
       <td>Settings → Your Data → Clear All, or remove extension</td>
@@ -79,25 +83,25 @@ a:hover{text-decoration:underline}
     <tr>
       <td>Conversation history (chat turns)</td>
       <td>Browser IndexedDB</td>
-      <td>Powers the transcript, Cold Storage pins, and journal log</td>
+      <td>Powers the transcript and Cold Storage pins</td>
       <td>Settings → Your Data → Clear All</td>
     </tr>
     <tr>
-      <td>Cold Storage pins</td>
+      <td>Cold Storage pins and saved exchanges</td>
       <td>Browser IndexedDB</td>
-      <td>Saves exchanges you manually pinned for later</td>
+      <td>Pinned exchanges, transcripts &amp; AI summaries</td>
       <td>Cold Storage tab → Delete button per pin, or Clear All</td>
     </tr>
     <tr>
       <td>Delivery reward count &amp; timestamp</td>
       <td><code>chrome.storage.local</code></td>
-      <td>Tracks milestone progress and 12-hour cooldown</td>
+      <td>Tracks milestone progress and 12-hour session cooldown</td>
       <td>Settings → Your Data → Clear All</td>
     </tr>
     <tr>
-      <td>UI preferences (theme, font size, voice speed, cast toggles, chaos mode)</td>
+      <td>UI preferences (theme, font size, voice speed/volume, cast toggles, chaos &amp; voice-engine modes)</td>
       <td><code>chrome.storage.local</code></td>
-      <td>Remembers your display and behaviour preferences</td>
+      <td>Remembers your display and behaviour preferences between sessions</td>
       <td>Settings → Your Data → Clear All</td>
     </tr>
     <tr>
@@ -106,18 +110,35 @@ a:hover{text-decoration:underline}
       <td>Restores your LLM configuration between sessions</td>
       <td>Settings → Your Data → Clear All</td>
     </tr>
+    <tr>
+      <td>Dark Matter balance &amp; history</td>
+      <td><code>chrome.storage.local</code></td>
+      <td>In-game currency earned via Lab activity, tab navigation, Autopilot &amp; chat; spent on Dark Matter Widgets</td>
+      <td>Settings → Your Data → Clear All</td>
+    </tr>
+    <tr>
+      <td>Widget unlock tiers &amp; collections (Aurebesh Relay, Beverage Machine, Smell-O-Scope™, Expedition Log)</td>
+      <td><code>chrome.storage.local</code></td>
+      <td>Tracks unlocked widget tiers and collected items/entries</td>
+      <td>Settings → Your Data → Clear All</td>
+    </tr>
   </tbody>
 </table>
 
 <p>That is the complete list. Nothing else is stored. No cookies. No local files outside of Chrome's managed storage areas. No IndexedDB databases other than the one named <code>PlanetExpressLounge</code>.</p>
 
+<p><strong>Demo Mode note:</strong> When no API key is connected, the extension runs in Demo Mode — a pre-written episode and scripted chat exchanges using your device's local TTS. Demo Mode stores nothing and makes no network calls of any kind. It exits permanently when you connect an API key.</p>
+
+<p><strong>Dark Matter Widgets note:</strong> The Lab's <em>Aurebesh Relay</em>, <em>Beverage Machine</em>, <em>Smell-O-Scope™</em>, and <em>Expedition Log</em> widgets are local-only mini-games that spend the same Dark Matter currency used by the Invention Lab. Dark Matter is earned passively by navigating tabs (1–3 ⚛️ every 5 seconds), running Autopilot (5–11 ⚛️ every 5 seconds), and sending chat messages (1 ⚛️ per message), in addition to existing Lab activities (recycling and scrapping inventions). All earning, spending, and collection data stays in <code>chrome.storage.local</code> — none of it is transmitted anywhere.</p>
+
 <h2>3. What data leaves your device</h2>
-<p>The only data that ever leaves your device is the content of your chat messages, sent directly from your browser to the API provider you selected. This happens when you press Send or when Autopilot mode is running.</p>
+<p>The only data that ever leaves your device is the content of your chat messages and autopilot prompts, sent directly from your browser to the API provider you selected. This happens when you press Send, when Autopilot mode is running, or when the invention generator is used in the Lab. Demo Mode makes no external requests.</p>
 <p><strong>The destination is always one of:</strong></p>
 <ul style="color:var(--fg2);font-size:14px;padding-left:20px;margin-bottom:14px;line-height:2">
   <li><code>https://api.groq.com</code> — if you chose Groq</li>
   <li><code>https://openrouter.ai</code> — if you chose OpenRouter</li>
   <li><code>https://generativelanguage.googleapis.com</code> — if you chose Gemini</li>
+  <li><code>https://api.elevenlabs.io</code> — if you added an optional ElevenLabs key for premium voices. <strong>Note:</strong> ElevenLabs' free tier does not include API access for text-to-speech — a paid ElevenLabs plan is required for this feature to work. Without it, the extension automatically falls back to your OS or Chrome's built-in voices.</li>
 </ul>
 <p>These calls are made using your own API key. The developer receives nothing. There is no proxy, no middleware, no relay server. The request goes from your browser directly to the provider.</p>
 <p>What those providers do with your prompts is governed by <strong>their</strong> privacy policies, not this one. Please read:</p>
@@ -130,6 +151,8 @@ a:hover{text-decoration:underline}
 <h2>4. What the developer does NOT collect</h2>
 <div class="zero-box">
   <p>The developer (#DHSeaDev) collects <strong>zero analytics, zero telemetry, zero crash reports, zero usage statistics, zero personal information, and zero conversation data.</strong> There are no tracking pixels, no fingerprinting scripts, no third-party analytics SDKs, and no advertising infrastructure of any kind in this extension. It has no backend server. It has no database. It makes no calls to any server operated by the developer.</p>
+
+        <p>This extension does not collect data about which AI provider or API you use, what prompts or messages you send to those providers, or how you interact with the extension. No usage telemetry, keystrokes, or behavioral data of any kind leave your device through this extension.</p>
 </div>
 
 <h2>5. Permissions explained</h2>
@@ -167,6 +190,10 @@ a:hover{text-decoration:underline}
       <td>Host: <code>generativelanguage.googleapis.com</code></td>
       <td>Allows direct API calls to Google Gemini when selected.</td>
     </tr>
+    <tr>
+      <td>Host: <code>api.elevenlabs.io</code></td>
+      <td>Allows direct API calls to ElevenLabs Text-to-Speech using your own key, only if you add one in Settings for premium character voices. Optional — the extension works fully without it using your OS or Chrome's built-in voices.</td>
+    </tr>
   </tbody>
 </table>
 
@@ -186,7 +213,30 @@ a:hover{text-decoration:underline}
 <h2>9. Contact</h2>
 <p>To ask questions about this policy, report a concern, or request removal of any content, open an issue at the GitHub repository linked in the extension manifest. There is no other contact method.</p>
 
-<h2>10. Intellectual property notice</h2>
+<h2>10. Understanding token usage, costs &amp; terms of service</h2>
+<p>"Tokens" and "API costs" are still new concepts for a lot of people, so here's a plain-language breakdown of what's actually happening when you use this extension.</p>
+
+<div class="summary-box" style="margin-bottom:14px">
+  <p><strong>The short version:</strong> with the recommended default (Groq, llama-3.1-8b-instant), normal use costs <strong>$0</strong> — it's covered by Groq's generous free tier. Costs only become relevant if you switch to a paid model/provider or a high-end model like llama-3.3-70b-versatile, GPT-4o, or Claude.</p>
+</div>
+
+<p><strong>What's a "token"?</strong> Roughly, a token is a chunk of text — about ¾ of a word in English. "Good news, everyone!" is about 5 tokens. Every message the crew sends (and every message you send) is measured in tokens, and that's the unit AI providers use for rate limits and (on paid plans) billing.</p>
+
+<p><strong>What's "effort"?</strong> Some interactions use more tokens than others. A single chat reply from one character is low effort (roughly 50-150 tokens). An Autopilot episode is high effort — it's many characters taking turns, back and forth, for several minutes, which adds up to thousands of tokens per episode. The new Episode/Chat Summary feature (📋 SUMMARY buttons) is a single extra request of up to ~1000 tokens.</p>
+
+<p><strong>Rough usage per hour</strong> (these are estimates to help with intuition, not guarantees — actual usage depends on conversation length, number of crew members enabled, and Chaos Mode):</p>
+<ul style="color:var(--fg2);font-size:14px;padding-left:20px;line-height:2;margin-bottom:14px">
+  <li><strong>Casual chat</strong> (a message every few minutes): a few thousand tokens/hour — on Groq's free tier, effectively unlimited for normal use.</li>
+  <li><strong>Continuous Autopilot</strong>: tens of thousands of tokens/hour, since the crew is generating dialogue non-stop. Still free on Groq's free-tier models, but free-tier <em>rate limits</em> (requests per minute) can be hit faster — if that happens, the extension will show an error and you can wait a moment or switch models.</li>
+  <li><strong>Episode/Chat Summaries</strong>: roughly +1000 tokens per summary generated, on top of whatever chat/Autopilot usage already happened.</li>
+  <li><strong>ElevenLabs voices</strong> (optional, paid plan required — see Section 3): billed separately by ElevenLabs based on characters of speech generated, not by this extension.</li>
+</ul>
+
+<p><strong>If you use a paid provider/model</strong> (OpenRouter, Gemini paid tiers, or Groq's paid usage beyond free limits), costs are typically fractions of a cent per chat message, and continuous Autopilot for an hour on a mid-tier model is commonly in the range of a few cents to low dollars depending on the model's price-per-token — high-end models (GPT-4o, Claude Sonnet, Gemini Pro, llama-3.3-70b-versatile) cost meaningfully more per token than small/fast models (llama-3.1-8b-instant, Gemini Flash, Claude Haiku). Check your chosen provider's pricing page for exact current rates — they change over time and this document can't track them in real time.</p>
+
+<p><strong>Terms of Service and cost responsibility:</strong> You are responsible for your own usage of any third-party AI or voice provider (Groq, OpenRouter, Gemini, ElevenLabs, or any other provider you configure), including all costs, rate limits, and compliance with that provider's own Terms of Service and Acceptable Use Policy. The developer (#DHSeaDev) does not bill you, does not see your usage, and is <strong>not responsible for any charges, overages, or account actions</strong> resulting from your use of your own API keys with their respective providers. This extension is a free, open-source tool that sends requests using credentials you provide — it is not a paid service and carries no service-level guarantees.</p>
+
+<h2>11. Intellectual property notice</h2>
 <div class="legal-box">
   <p><strong>Futurama</strong>, all character names, likenesses, catchphrases, and related elements are the intellectual property of <strong>The Walt Disney Company</strong> and its subsidiaries, including <strong>20th Television Animation</strong> (formerly 20th Century Fox Television). The series is distributed by <strong>Hulu</strong>.</p>
   <p>This is an <strong>independent, non-commercial fan project</strong> created for personal entertainment and educational purposes only. It is not affiliated with, endorsed by, or connected to Disney, Hulu, 20th Television Animation, Matt Groening, or any associated rights holders.</p>
@@ -195,7 +245,7 @@ a:hover{text-decoration:underline}
 </div>
 
 <footer>
-  Planet Express Lounge v4.0.1 &nbsp;·&nbsp; Non-commercial fan project &nbsp;·&nbsp; No data collected
+  Planet Express Lounge &nbsp;·&nbsp; Non-commercial fan project &nbsp;·&nbsp; No data collected
   <div class="dev-tag">#DHSeaDev</div>
 </footer>
 

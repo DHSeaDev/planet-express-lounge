@@ -1,5 +1,5 @@
 /**
- * popup.js  —  Planet Express Lounge v4.0
+ * popup.js  —  Planet Express Lounge
  * Toolbar popup — opens the sidepanel. No server required.
  * Lightweight: just a launcher + status relay.
  */

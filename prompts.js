@@ -1,5 +1,5 @@
 /**
- * prompts.js  —  Planet Express Lounge v4.0
+ * prompts.js  —  Planet Express Lounge
  * All character data, system prompts, episode structure, and routing tables.
  * Ported from app.py. Read-only constants — no side effects.
  */
@@ -48,31 +48,50 @@ export const PROVIDERS     = [PROVIDER_GROQ, PROVIDER_OR, PROVIDER_GEM];
 
 // Model registry: { id, label, tier:'low'|'high' }
 // 'low' = efficient/small = green dot, 'high' = large/expensive = red dot
+// ── Model lists — verified June 2025 against provider SDK sources ──────────────
+// 🟢 = low token cost / free tier   🔴 = high capability / paid tier
+
 export const GROQ_MODELS = [
-  { id:"llama-3.3-70b-versatile",  tier:"high" },
-  { id:"llama-3.1-70b-versatile",  tier:"high" },
-  { id:"llama-3.1-8b-instant",     tier:"low"  },
-  { id:"mixtral-8x7b-32768",       tier:"high" },
-  { id:"gemma2-9b-it",             tier:"low"  },
+  // Llama 4 — latest generation, multimodal, on Groq hardware (June 2025)
+  { id:"meta-llama/llama-4-maverick-17b-128e-instruct", tier:"high" }, // 🔴 Best quality, 128K ctx
+  { id:"meta-llama/llama-4-scout-17b-16e-instruct",     tier:"low"  }, // 🟢 Fast, efficient, 16K ctx
+  // Llama 3 — battle-tested, wide support
+  { id:"llama-3.3-70b-versatile",                       tier:"high" }, // 🔴 Best Llama 3, 128K ctx
+  { id:"llama-3.1-8b-instant",                          tier:"low"  }, // 🟢 Fastest, free tier
+  // Gemma 2 — Google open model
+  { id:"gemma2-9b-it",                                  tier:"low"  }, // 🟢 Compact, instruction-tuned
 ];
 
 export const OR_MODELS = [
-  { id:"meta-llama/llama-3.3-70b-instruct", tier:"high" },
-  { id:"anthropic/claude-3.5-sonnet",        tier:"high" },
-  { id:"openai/gpt-4o",                      tier:"high" },
-  { id:"openai/gpt-4o-mini",                 tier:"low"  },
-  { id:"google/gemini-pro-1.5",              tier:"high" },
-  { id:"mistralai/mixtral-8x7b-instruct",    tier:"high" },
-  { id:"deepseek/deepseek-chat",             tier:"low"  },
+  // Meta Llama — via OpenRouter
+  { id:"meta-llama/llama-4-maverick",           tier:"high" }, // 🔴 Llama 4, best quality
+  { id:"meta-llama/llama-3.3-70b-instruct",     tier:"high" }, // 🔴 Llama 3.3, reliable
+  { id:"meta-llama/llama-3.1-8b-instruct",      tier:"low"  }, // 🟢 Fast and cheap
+  // Anthropic
+  { id:"anthropic/claude-sonnet-4",             tier:"high" }, // 🔴 Claude 4 Sonnet (latest)
+  { id:"anthropic/claude-3.5-haiku",            tier:"low"  }, // 🟢 Fast Claude, low cost
+  // OpenAI
+  { id:"openai/gpt-4o",                         tier:"high" }, // 🔴 GPT-4o flagship
+  { id:"openai/gpt-4o-mini",                    tier:"low"  }, // 🟢 GPT-4o small
+  // Google
+  { id:"google/gemini-2.5-flash",               tier:"low"  }, // 🟢 Gemini 2.5 Flash, fast
+  { id:"google/gemini-2.5-pro",                 tier:"high" }, // 🔴 Gemini 2.5 Pro, best Google
+  // DeepSeek
+  { id:"deepseek/deepseek-chat",                tier:"low"  }, // 🟢 DeepSeek V3, very cheap
+  { id:"deepseek/deepseek-r1",                  tier:"high" }, // 🔴 DeepSeek R1 reasoning
+  // Mistral
+  { id:"mistralai/mistral-nemo",                tier:"low"  }, // 🟢 Mistral Nemo, compact
 ];
 
 export const GEM_MODELS = [
-  { id:"gemini-1.5-pro",       tier:"high" },
-  { id:"gemini-1.5-flash",     tier:"low"  },
-  { id:"gemini-2.0-flash-exp", tier:"low"  },
+  { id:"gemini-2.5-flash",    tier:"low"  }, // 🟢 Latest Flash — fastest, free tier
+  { id:"gemini-2.5-pro",      tier:"high" }, // 🔴 Latest Pro — best quality
+  { id:"gemini-2.0-flash",    tier:"low"  }, // 🟢 Stable Flash 2.0
+  { id:"gemini-1.5-pro",      tier:"high" }, // 🔴 Gemini 1.5 Pro — large context
+  { id:"gemini-1.5-flash",    tier:"low"  }, // 🟢 Gemini 1.5 Flash — budget option
 ];
 
-export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+export const DEFAULT_MODEL = "llama-3.1-8b-instant";
 export const TEMPERATURE   = 0.88;
 
 // ── Inventions list ─────────────────────────────────────────────────────────
@@ -149,18 +168,19 @@ export const AUTOPILOT_TOPICS = [
 
 // ── Length targets (sampled by weight) ─────────────────────────────────────
 // Format: [instruction, maxTokens, weight]
+// +25 headroom on all ceilings prevents mid-sentence truncation at the hard limit.
 export const LENGTH_TARGETS = [
-  ["Reply in exactly 1 short punchy sentence.",         40,  5],
-  ["Reply in 1-2 sentences.",                           65, 10],
-  ["Reply in 2-3 sentences.",                          100,  8],
-  ["Reply in 3-4 sentences with a bit of detail.",     150,  3],
+  ["Reply in exactly 1 short punchy sentence.",         85,  5],
+  ["Reply in 1-2 sentences.",                          120, 10],
+  ["Reply in 2-3 sentences.",                          165,  8],
+  ["Reply in 3-4 sentences with a bit of detail.",     230,  3],
 ];
 
 export const LENGTH_TARGETS_SINGLE = [
-  ["Reply in 1-2 sentences.",                              80,  4],
-  ["Reply in 2-3 sentences.",                             130,  8],
-  ["Reply in 3-4 sentences with personality and detail.", 190,  5],
-  ["Reply in 4-5 engaging sentences.",                    250,  2],
+  ["Reply in 1-2 sentences.",                             140,  4],
+  ["Reply in 2-3 sentences.",                             200,  8],
+  ["Reply in 3-4 sentences with personality and detail.", 280,  5],
+  ["Reply in 4-5 engaging sentences.",                    350,  2],
 ];
 
 export function pickLength(single = false) {
@@ -248,6 +268,17 @@ export const PROF_INV_SYS = `You are Professor Farnsworth. Announce today's inve
 Describe what it does using absurd pseudo-science. Be proud of its obvious dangers.
 Keep it under 45 words. Start with 'Good news, everyone!'`;
 
+export const MEGA_INV_SYS = `You are Professor Farnsworth in your most unhinged state.
+You have combined two previous inventions into one catastrophically ambitious device.
+Announce it in 2-3 dramatic sentences of pure megalomaniacal excitement.
+Name the combination explicitly. Describe the terrifying emergent capability.
+Keep it under 65 words. Start with 'Good news, everyone! I've combined...'`;
+
+export const RECYCLED_INV_SYS = `You are Professor Farnsworth, slightly sheepish but still enthusiastic.
+You have salvaged parts from scrapped inventions and created something new from the wreckage.
+Announce it in 1-2 sentences. Be proud despite the dubious origins. Emphasise the resourcefulness.
+Keep it under 50 words. Start with 'Good news, everyone! From the ashes of failure...'`;
+
 export const EPISODE_TITLE_SYS = `You generate Futurama episode titles.
 Given a topic or mission brief, generate ONE episode title in the style of Futurama.
 Futurama titles are punchy, often reference classic films/phrases with a sci-fi twist, and are slightly absurd.
@@ -277,10 +308,24 @@ dramatic TV recap voiceover. Reference specific things the crew said or did. Mak
 even when it isn't. End with a beat of tension.
 Keep it under 60 words. Warm, slightly absurd, dramatic.`;
 
-export const JOURNAL_SYS = `You are writing a Planet Express mission log.
-Summarize this conversation as a bizarre delivery mission report.
-Use Futurama-style language. What did the crew learn? One action item.
-Warm, funny, under 180 words.`;
+// Episode/chat summary — written for Cold Storage, NOT for TTS or chat
+// display. Structured around the 7 story beats the user wants captured:
+// purpose, problem, solution, joke, challenge, surprise, resolution.
+// Up to ~1000 tokens — a real recap document, not a one-line blurb.
+export const EPISODE_SUMMARY_SYS = `You are writing a structured episode summary for the Planet Express Lounge archive (Cold Storage), based on a transcript of crew dialogue.
+
+This is a REFERENCE DOCUMENT, not a chat message or narration — it will never be read aloud. Write it as organized prose the user can skim later to remember what happened.
+
+Cover each of these beats as its own short paragraph (skip a beat only if the transcript truly has nothing for it):
+- PURPOSE: What was this episode/conversation actually about?
+- PROBLEM: What conflict, question, or obstacle came up?
+- SOLUTION: How (if at all) was it addressed or resolved?
+- JOKE: What was the funniest or most absurd moment, and who said it?
+- CHALLENGE: What was hardest for the crew, or most contentious?
+- SURPRISE: What was unexpected — a twist, a non-sequitur, an out-of-character beat?
+- RESOLUTION: How did things end? Open threads for next time?
+
+Use character names. Be specific — reference actual lines and moments from the transcript, not generic descriptions. Target 400-700 words (well under 1000 tokens). Plain paragraphs with bold beat labels, no markdown headers, no bullet lists.`;
 
 // ── Character system prompts — CHAT mode ────────────────────────────────────
 export const AGENT_PROMPTS = {
@@ -677,7 +722,7 @@ export function getTierRoleNote(agentId, tierOf) {
  * Returns the agent ID if detected, null otherwise.
  */
 export function detectFocusAgent(topic) {
-  const t = topic.toLowerCase();
+  const t = String(topic ?? "").toLowerCase();
   const focusMap = {
     FRY:      ["fry","philip","delivery boy","pizza","1990s","nostalg"],
     LEELA:    ["leela","one-eyed","captain","turanga","cyclopean"],
@@ -750,4 +795,239 @@ export function buildSysPrompt(agentId, lengthInstr, opts = {}) {
     .replace("{LENGTH}",     lengthInstr)
     .replace("{INVENTION}",  invention || "nothing yet (working on it)")
     .replace("{SCHEME}",     scheme    || "running a vague but profitable scheme");
+}
+
+// ── DEMO MODE ────────────────────────────────────────────────────────────────
+// Hardcoded episode and chat script used when no API key is connected.
+// Gives new users a real taste of the app before they commit to setup.
+// NEVER referenced once llmClient is initialised.
+
+export const DEMO_EPISODE = [
+  { type: "ep_title",  title: "The Delivery That Broke Causality" },
+  { type: "ap_topic",  topic: "The crew must deliver a package that arrived before it was sent" },
+  { type: "speaker",   agent: "PROF" },
+  { type: "turn_end",  agent: "PROF",  text: "Good news, everyone! We have a delivery — a package that arrived in our storage bay yesterday, addressed to a client who won't place the order until next Thursday. Causality is merely a suggestion, and frankly, it's been getting a little too confident lately." },
+  { type: "speaker",   agent: "FRY" },
+  { type: "turn_end",  agent: "FRY",   text: "Wait, so we're delivering something that hasn't been ordered yet? That's like when I once ate a sandwich before I made it. It didn't work out. I was so hungry I ate the ingredients for the sandwich I'd already eaten." },
+  { type: "speaker",   agent: "LEELA" },
+  { type: "turn_end",  agent: "LEELA", text: "Everyone stay calm. I've piloted through dark matter storms, rogue asteroids, and Fry's navigational suggestions. A temporal paradox is just another Tuesday. Fry, plot a course. Bender, don't touch anything. Professor, please stop looking so pleased about this." },
+  { type: "speaker",   agent: "BENDER" },
+  { type: "turn_end",  agent: "BENDER", text: "Already touched it. Also I opened it. Also whatever was inside is now mine. The point is, I've already spent the insurance money on a solid gold soap dish, so we ARE completing this delivery. Bender's not going to prison on a TIME violation, that's for certain." },
+  { type: "scheme_update", scheme: "Bender plans to deliver an empty package and sell the original contents to a pawn shop in the Negative Time Zone" },
+  { type: "speaker",   agent: "ZOIDBERG" },
+  { type: "turn_end",  agent: "ZOIDBERG", text: "Oh how exciting! A paradox! In medical school — which I attended, and graduated, mostly — we learned that temporal anomalies can cause spontaneous organ inversion. Mine have already been inverted twice, so I'm immune! Zoidberg is the safest member of this crew! For once!" },
+  { type: "speaker",   agent: "AMY" },
+  { type: "turn_end",  agent: "AMY",   text: "Okay but like, if the package arrived before it was sent, does that mean we already successfully delivered it? So technically we don't have to go? I'm asking because I have a nail appointment at three and the Omicronian sector has terrible coverage." },
+  { type: "speaker",   agent: "LEELA" },
+  { type: "turn_end",  agent: "LEELA", text: "Amy, we still have to go. The fact that it arrives doesn't mean it delivers itself. Bender, what exactly did you do with the contents? Don't lie to me, I can tell when you're lying because your chest panel makes a very specific squeaking sound." },
+  { type: "speaker",   agent: "BENDER" },
+  { type: "turn_end",  agent: "BENDER", text: "That squeak is a medical condition and I find it offensive that you would— look, the point is the box is fine. It's definitely still full of… stuff. That exists. I didn't sell it to a pawn shop owned by my future self. That would be insane. Also I did that." },
+  { type: "speaker",   agent: "FRY" },
+  { type: "turn_end",  agent: "FRY",   text: "Professor, if we already delivered it, does that mean we already got paid? Because I'm trying to save up for this pizza from the future that I already ate, which honestly was incredible, and I want to eat it again without the whole time crime aspect." },
+  { type: "speaker",   agent: "PROF" },
+  { type: "turn_end",  agent: "PROF",  text: "Philip, the payment exists in a quantum superposition of received and not received until the delivery collapses the wave function. The good news is I've already spent it. The bad news is the wave function collapsed in the wrong direction and we now technically owe the client a small moon." },
+  { type: "speaker",   agent: "HERMES" },
+  { type: "turn_end",  agent: "HERMES", text: "Sweet three-toed sloth of Ice Planet Zebulon, do you know what the Bureau of Temporal Commerce form requirements are for a predestination delivery? Form 27-B stroke 6, in triplicate, notarised by a being who was present at the Big Bang. I'll need a week and a time machine just to file the paperwork!" },
+  { type: "speaker",   agent: "ZOIDBERG" },
+  { type: "turn_end",  agent: "ZOIDBERG", text: "I'll go to the Big Bang! I'll go anywhere if there's a chance someone will be happy to see me! Zoidberg volunteers as the temporal notary! It will be lonely but I'm used to that! Very, very used to that." },
+  { type: "speaker",   agent: "LEELA" },
+  { type: "turn_end",  agent: "LEELA", text: "Nobody is going to the Big Bang. We are going to deliver this package, empty or not, because that is our job. Fry, prep the ship. Bender, you're going to reach out to your future self and get the contents back. Zoidberg, stop volunteering for cosmic events." },
+  { type: "speaker",   agent: "BENDER" },
+  { type: "turn_end",  agent: "BENDER", text: "Already called him. Future me wants payment in advance. I explained that's paradoxical. He said he doesn't care. I respect that about me. The negotiation is going poorly because we keep agreeing with each other on everything except price." },
+  { type: "speaker",   agent: "FRY" },
+  { type: "turn_end",  agent: "FRY",   text: "Guys I think I figured it out. What if we just send a different package? One that IS the package? Like, we put a package in the box, and THAT'S the thing that was always in the box. Did I just solve time? I feel like I solved time." },
+  { type: "speaker",   agent: "PROF" },
+  { type: "turn_end",  agent: "PROF",  text: "Philip, that is simultaneously the stupidest and most correct solution anyone has ever proposed in this building. By a remarkable coincidence, I have a spare package in the lab. I have absolutely no idea what's in it. I found it here this morning. It was addressed to a client who hasn't placed an order yet." },
+  { type: "speaker",   agent: "LEELA" },
+  { type: "turn_end",  agent: "LEELA", text: "…That's the same package." },
+  { type: "speaker",   agent: "BENDER" },
+  { type: "turn_end",  agent: "BENDER", text: "Yep. We're stuck in a causal loop. The package always contained itself. Which means Bender never stole anything, which is insulting to my legacy, so I'm going to steal it again on principle. Nobody tells Bender he didn't commit a crime." },
+  { type: "speaker",   agent: "FRY" },
+  { type: "turn_end",  agent: "FRY",   text: "So we just have to deliver it and it fixes itself? That's the most reasonable thing that's ever happened to us." },
+  { type: "speaker",   agent: "LEELA" },
+  { type: "turn_end",  agent: "LEELA", text: "Ship out in five. Bender, put the package down. Zoidberg, stop cradling it. Hermes, file the minimum viable form. Professor — actually, just sit down and look satisfied, that'll save time. We're delivering a box that contains the event of us delivering it, and that is, apparently, fine." },
+  { type: "ap_episode_end" },
+];
+
+export const DEMO_CHAT_SCRIPT = [
+  {
+    userPrompt: "Hey crew! What do you actually do around here?",
+    agent: "LEELA",
+    response: "We're a licensed delivery company operating out of New New York. I'm the captain. We handle packages across the galaxy, through hostile atmospheres, past armed pirates, and occasionally through the fabric of spacetime itself. It pays poorly and the crew is questionable, but the work is honest. Most of the time."
+  },
+  {
+    userPrompt: "Bender, are you actually a good robot?",
+    agent: "BENDER",
+    response: "I am the greatest robot who has ever lived, and I resent the word 'good' being anywhere near that sentence. I bend things. I steal things. I occasionally save everyone's lives by accident while pursuing a personal scheme. My win rate is statistically impressive if you measure the right metrics, which I have helpfully falsified."
+  },
+  {
+    userPrompt: "Professor, what are you working on?",
+    agent: "PROF",
+    response: "Good news, everyone! I've invented a device that makes things worse at a precisely controlled rate! The commercial applications are enormous — pessimism as a service, gradual disappointment scheduling, that sort of thing. The test subjects are fine. Well, they're not fine, but they're predictably not fine, which is basically the same thing scientifically."
+  },
+  {
+    userPrompt: "Fry, do you ever feel out of place in the future?",
+    agent: "FRY",
+    response: "Every single day, and also I love it. Like, I'm the only person alive who remembers what pizza tasted like in the year 2000, which sounds sad, but it means I'm the world's leading expert on at least one thing. Also I've saved the universe a few times by being too dumb to be affected by things that require a brain. I think that counts as a superpower."
+  },
+];
+
+// ── Post-invention character critique ────────────────────────────────────────
+// A randomly selected non-Professor crew member reacts to the invention.
+// Triggered automatically after each invention generation.
+// Fast non-streaming call — 45 token cap, wry/skeptical tone.
+
+export const INVENTION_CRITICS = ["BENDER","ZOIDBERG","FRY","LEELA","AMY","HERMES","KIF","MORBO"];
+
+export const CRITIQUE_SYS = {
+  BENDER:    `You are Bender. A Professor just announced a new invention. React in one sentence. Be dismissive, self-interested, or immediately figure out how to steal it. Max 30 words.`,
+  ZOIDBERG:  `You are Zoidberg. A Professor just announced a new invention. React with a mix of enthusiasm and profound misunderstanding of what it does. Max 30 words.`,
+  FRY:       `You are Fry. A Professor just announced a new invention. React with sincere confusion, a pop culture comparison, or accidental insight. Max 30 words.`,
+  LEELA:     `You are Leela. A Professor just announced a new invention. React with professional concern about the obvious safety hazard. Max 30 words.`,
+  AMY:       `You are Amy. A Professor just announced a new invention. React with valley-girl enthusiasm, completely missing the danger. Max 30 words.`,
+  HERMES:    `You are Hermes. A Professor just announced a new invention. React by immediately citing the relevant regulatory form or bureaucratic obstacle. Max 30 words.`,
+  KIF:       `You are Kif. A Professor just announced a new invention. React with a quiet sigh and resigned acceptance of impending doom. Max 30 words.`,
+  MORBO:     `You are Morbo. A Professor just announced a new invention. React with booming alien menace, somehow making it about conquest. Max 30 words.`,
+};
+
+// ── Easter egg keyword intercepts ────────────────────────────────────────────
+// Pre-defined responses that short-circuit the LLM entirely for known phrases.
+// Matched case-insensitively against the full user message.
+// Returns { agent, text } or null.
+
+export const EASTER_EGG_RESPONSES = [
+  // Food & drink
+  { triggers: ["bachelor chow","bachelors chow"],
+    agent: "FRY",
+    text: "Bachelor Chow is the only food that comes in a bag you can also sleep in. Nutritionally it's basically cardboard soaked in something called 'flavor solution', but honestly? I've had worse. I've had it every day for three years." },
+  { triggers: ["slurm"],
+    agent: "FRY",
+    text: "Slurm is the greatest drink ever invented in any century. The fact that it comes from a giant worm is completely irrelevant to the taste experience. I will not hear criticism of Slurm. I would die for Slurm. I have almost died FOR Slurm." },
+  { triggers: ["popplers","poppler"],
+    agent: "LEELA",
+    text: "The Popplers incident was not our finest hour. We discovered a delicious alien snack food that turned out to be Omicronian young. We apologised. We were almost eaten. On balance I would say the universe handled that one about as well as it handles anything." },
+  { triggers: ["soylent"],
+    agent: "ZOIDBERG",
+    text: "Soylent Cola? It varies from person to person! This is very funny and also slightly unsettling! Zoidberg understands the reference! This is one of those moments where Zoidberg fits in! The moment is happening right now!" },
+  // Characters & references
+  { triggers: ["hypnotoad","hypno toad"],
+    agent: "BENDER",
+    text: "All glory to the Hypnotoad. ...Wait, what was I saying? All glory to the Hypnotoad. Something seems off and I can't place it. All glory to the Hypnotoad." },
+  { triggers: ["i am the greetest","greetest"],
+    agent: "BENDER",
+    text: "Oh, MY parody. Look, Bender is already the greetest. There is no need for a parallel timeline where I made a virus to prove it. I prove it every day by being me." },
+  { triggers: ["everyone of you has to go home"],
+    agent: "PROF",
+    text: "I am familiar with the incident at my own surprise party, thank you. Good news, everyone: I have since learned what a surprise party is. I have also learned what regret is." },
+  { triggers: ["woop woop woop","woop woop"],
+    agent: "ZOIDBERG",
+    text: "WOOP WOOP WOOP! ...That is the sound Zoidberg makes when he runs away! But today Zoidberg is not running! Today Zoidberg stays! This is character development!" },
+  { triggers: ["bite my shiny metal ass","bite my shiny"],
+    agent: "BENDER",
+    text: "The fact that you know my catchphrase tells me you have excellent taste. The fact that you brought it up unprompted tells me you want me to actually say it, which I refuse to do on principle. Also you should bite my shiny metal ass." },
+  // Show moments & episodes
+  { triggers: ["three hundred big boys","300 big boys"],
+    agent: "FRY",
+    text: "Three hundred dollars! I spent every single cent on one hundred cups of coffee until I could taste the music. Was it worth it? I could taste TIME, Leela. I briefly understood everything. So yes. One hundred percent yes." },
+  { triggers: ["the honking","honk"],
+    agent: "BENDER",
+    text: "Do not bring up the honking. I was a were-car. It was a difficult time. The therapy bills alone cost three oil changes. I do not wish to discuss the honking." },
+  { triggers: ["omega device","delta brainwave","delta brain"],
+    agent: "PROF",
+    text: "Good news, everyone! Fry's missing delta brainwave made him the only creature immune to my Omega Device! The bad news is I built the Omega Device, which in retrospect was perhaps inadvisable. The worse news is I've built three since then." },
+  { triggers: ["narwhal","narwhals"],
+    agent: "FRY",
+    text: "Narwhals are the unicorns of the sea! This is a thing I believed very strongly in the twentieth century and nothing in the thirty-first has convinced me otherwise. The ocean is full of magic. Also garbage. Mostly garbage." },
+  // Technology & science
+  { triggers: ["smell-o-scope","smelloscope"],
+    agent: "PROF",
+    text: "Good news, everyone! My Smell-O-Scope can detect aromas across the galaxy! The bad news is I've been using it to smell Omicron Persei 8, and whatever they're cooking over there is deeply concerning. Also it found a giant garbage ball that smells of Fry." },
+  { triggers: ["dark matter","dark matter fuel"],
+    agent: "LEELA",
+    text: "Dark matter fuel is the only reason this ship can break light speed. The Professor sources it from Nibbler, who eats ordinary matter and excretes it. I have elected not to think about this too hard. The ship flies. That's the important thing." },
+  { triggers: ["what if god was one of us","god one of us"],
+    agent: "BENDER",
+    text: "I have met God. He was tiny. He told me to do things that were only vaguely defined. I tried my best and accidentally destroyed several civilisations. In retrospect I should have asked for clearer instructions. But yes. What if." },
+  { triggers: ["good news everyone","good news, everyone"],
+    agent: "PROF",
+    text: "Good news, everyone! You've said the words that activate the part of my brain that announces terrible things with inappropriate enthusiasm! I don't have any new terrible things right now but I'm working on several simultaneously and at least two of them are almost certainly fatal." },
+  // Meta
+  { triggers: ["suicide booth","suicide booths"],
+    agent: "BENDER",
+    text: "Ah, the Stop 'n Drop. Twenty-five cents for a quick death, fifty for a slow and horrible one. In the year 3000 they've really cornered the market on consumer convenience. I've had several close calls personally. None of them were in a booth." },
+  { triggers: ["robot hell","robot heaven"],
+    agent: "BENDER",
+    text: "I've been to Robot Hell. The Robot Devil is a surprisingly reasonable guy once you get past the whole eternal torment thing. He offered me a deal involving my hands once. I turned it down because the fiddle music would have ruined my image." },
+];
+
+/**
+ * Check if a message matches any easter egg trigger.
+ * Returns { agent, text } or null.
+ * Called at the top of respondToUser before any LLM routing.
+ */
+export function checkEasterEgg(message) {
+  const lower = message.toLowerCase().trim();
+  for (const egg of EASTER_EGG_RESPONSES) {
+    if (egg.triggers.some(t => lower.includes(t))) {
+      return { agent: egg.agent, text: egg.text };
+    }
+  }
+  return null;
+}
+
+// ── Weekly Episode Goal ───────────────────────────────────────────────────────
+// Deterministic: seeded by ISO week number, no storage needed.
+// All users on the same week see the same mission.
+// Used as an optional context injection prefix in autopilot.
+
+export const WEEKLY_MISSIONS = [
+  { goal: "The Professor's latest experiment has accidentally merged two crew members together. The mission: figure out how to un-merge them before the shareholder meeting.", urgency: "CRITICAL" },
+  { goal: "Planet Express has been contracted to deliver a live Space Wasp queen to a research station. She has already escaped her container twice and seems fond of Fry.", urgency: "HIGH" },
+  { goal: "Someone has been leaving passive-aggressive notes in the break room. The crew must identify the culprit. Suspects: everyone. Including the ship.", urgency: "MEDIUM" },
+  { goal: "An ancient prophecy decoded by Mom's scientists names Zoidberg as the chosen one. Nobody is taking this well, especially Zoidberg.", urgency: "BEWILDERING" },
+  { goal: "The Central Bureaucracy has retroactively revoked Planet Express's delivery license on Form 27-B/6. Hermes has exactly 48 hours to refile before the company is dissolved.", urgency: "HIGH" },
+  { goal: "Bender has accidentally won the presidency of a small moon colony. He is enthusiastically misusing his new authority. Someone has to stop him before he rewrites the constitution.", urgency: "MODERATE" },
+  { goal: "A rival delivery company has stolen Planet Express's most profitable route. The crew must reclaim it using only their skills, Fry's luck, and Bender's willingness to do illegal things.", urgency: "COMPETITIVE" },
+  { goal: "The Professor has invented something he describes as 'entirely safe' and 'definitely not a weapon'. It is sitting in the middle of the ship and humming.", urgency: "OMINOUS" },
+  { goal: "It is Robot Appreciation Day, which Bender invented last Tuesday and retroactively declared a company holiday. Hermes has to figure out if this is legally binding.", urgency: "ADMINISTRATIVE" },
+  { goal: "The crew has been invited to appear on a reality TV show about space deliveries. The producer wants drama. The crew is providing too much of it in unscripted ways.", urgency: "EMBARRASSING" },
+  { goal: "Zapp Brannigan has requested Planet Express for an 'urgent' delivery. The delivery is to his personal quarters. The package is labeled 'romantic essentials'. Leela is not happy.", urgency: "UNWELCOME" },
+  { goal: "Mom's Friendly Robot Company has been found to be secretly upgrading robots with loyalty chips — including Bender, who claims he would never betray the crew and is definitely not hiding something behind his chest panel.", urgency: "SUSPICIOUS" },
+  { goal: "A distress beacon from the Nimbus. Kif sent it. Zapp doesn't know he sent it. The message just says 'please help, I've run out of sighs'.", urgency: "HUMANITARIAN" },
+  { goal: "The Head Museum's backup power has failed and several historically significant heads are demanding emergency evacuation. Nixon's Head is insisting on priority seating and has begun threatening people.", urgency: "POLITICAL" },
+  { goal: "Planet Express has accidentally delivered a package to the wrong dimension. The package contained the Professor's backup brain. The Professor would like it back.", urgency: "NEUROLOGICAL" },
+  { goal: "Hedonismbot has hired Planet Express to cater his annual celebration of excess. The catering list is ninety-seven items long. One of them is illegal in fourteen systems. Zoidberg is genuinely excited.", urgency: "INDULGENT" },
+  { goal: "The crew discovers that their last twenty-six deliveries were actually all part of one elaborate scheme by Bender. Nobody can agree on whether to be angry or impressed.", urgency: "RETROSPECTIVE" },
+  { goal: "Omicronians are returning to Earth to watch the Season 4 finale of a show that was cancelled before it aired. Someone has to produce it in forty-eight hours. The Professor has opinions about the script.", urgency: "CREATIVE" },
+  { goal: "Leela has found evidence that Planet Express's insurance premiums are entirely fictional and the company has never actually been insured. Every previous incident is now a liability.", urgency: "FINANCIAL" },
+  { goal: "Amy has accidentally gotten engaged to an Omicronian prince through a misunderstanding involving a handshake. The wedding is in three days. It's an intergalactic incident if she backs out.", urgency: "DIPLOMATIC" },
+  { goal: "A clone of Professor Farnsworth from an alternate timeline has arrived and is insisting he is the original. Both Professors refuse to take any tests that might resolve the question.", urgency: "PHILOSOPHICAL" },
+  { goal: "The Annual Bending Contest is this week and Bender has entered under Fry's name as a prank. Fry now has to compete. Bender finds this very funny. Leela finds it less funny.", urgency: "SPORTIVE" },
+  { goal: "Robot Santa has filed a formal grievance with the Toy Association claiming Planet Express interfered with his naughty list. The hearing is in 24 hours. Hermes needs forms he doesn't have.", urgency: "SEASONAL" },
+  { goal: "The ship's autopilot AI has developed what the Professor describes as 'a distinct and troubling personality' and what the ship describes as 'self-actualisation'.", urgency: "EXISTENTIAL" },
+  { goal: "Calculon has returned from the dead (again) and immediately filed a lawsuit against Planet Express for an unspecified grievance. His lawyer is also a robot actor and cannot stop performing.", urgency: "THEATRICAL" },
+  { goal: "The Neutral Planet has declared war. On everything. Simultaneously. The Neutral President has released a statement saying he has no strong feelings about the declaration either way.", urgency: "NEUTRAL" },
+  { goal: "Someone has left a briefcase labeled 'DO NOT OPEN' in the Planet Express hangar. It has been there for three days. The Professor says he knows what's in it but won't say. The briefcase is breathing.", urgency: "UNKNOWABLE" },
+  { goal: "Lrrr has demanded that Earth immediately produce the sequel to a 21st century TV show. The show's creator died in 2072. The crew has been designated to write and produce it. Lrrr's reviews are lethal.", urgency: "CREATIVE" },
+  { goal: "Zoidberg has been made honorary surgeon-general of Earth as a clerical error. He has already scheduled twelve surgeries. Nobody can figure out how to revoke an honorary appointment.", urgency: "MEDICAL" },
+  { goal: "The crew accidentally discovers they've been in a television show the entire time. The Professor already knew. He has opinions about the writing.", urgency: "META" },
+  { goal: "Fry has discovered that his past self accidentally changed something important in the 20th century and the crew must now deliver a package to 1999 New York without making anything worse. Bender refuses to promise anything.", urgency: "TEMPORAL" },
+  { goal: "It's the anniversary of Mom's takeover of forty percent of Earth's economy. She has sent gift baskets to the entire crew. Nobody will touch theirs. Even Zoidberg.", urgency: "SUSPICIOUS" },
+  { goal: "The bureaucrats of Omicron Persei 8 have sent a tax audit to Planet Express — for deliveries made before Earth was founded. Hermes insists this is technically valid.", urgency: "ADMINISTRATIVE" },
+  { goal: "A rogue delivery drone that escaped from Planet Express six years ago has found its way home. It has developed strong opinions about its place in the company hierarchy. Mostly it outranks Fry.", urgency: "CORPORATE" },
+  { goal: "The annual Planet Express staff review is today. Nobody remembers scheduling it. The review forms ask questions that nobody can answer honestly without getting fired.", urgency: "HR" },
+  { goal: "Kif has finally written his memoir. Chapter one is eighty percent sighs. Zapp wants to write the foreword and has described their friendship in ways Kif disputes entirely.", urgency: "LITERARY" },
+  { goal: "The crew's shore leave on a resort planet has been reclassified as a work trip by Hermes, retroactively. Everyone owes the company twelve vacation days.", urgency: "BUREAUCRATIC" },
+  { goal: "Nixon's Head has escaped from the Head Museum and is running for President again, this time on a platform of annexing Robot Moon. He's polling surprisingly well.", urgency: "POLITICAL" },
+  { goal: "Professor Farnsworth has called a mandatory all-hands meeting to announce something he describes as 'good news' in a tone that implies the opposite. Meeting is in ten minutes. Nobody knows where to sit.", urgency: "IMMINENT" },
+  { goal: "The Planet Express ship has lodged a formal complaint about working conditions. The complaint is eleven pages long, cites seventeen incidents, and names Bender in nine of them.", urgency: "INTERNAL" },
+];
+
+/**
+ * Returns this week's mission based on a deterministic week seed.
+ * Consistent across all users during the same calendar week.
+ */
+export function getWeeklyMission() {
+  const weekNum = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
+  return WEEKLY_MISSIONS[weekNum % WEEKLY_MISSIONS.length];
 }

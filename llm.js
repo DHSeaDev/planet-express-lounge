@@ -1,5 +1,5 @@
 /**
- * llm.js  —  Planet Express Lounge v4.0
+ * llm.js  —  Planet Express Lounge
  * Direct streaming LLM calls to Groq, OpenRouter, and Gemini.
  * Replaces the Python LLM class and Flask SSE streaming in server.py.
  */

@@ -68,8 +68,8 @@ footer{position:relative;z-index:1;width:100%;text-align:center;padding:24px 20p
   <span class="ship">🚀</span>
   <h1 class="hero-title">PLANET EXPRESS LOUNGE</h1>
   <div class="hero-sub">FUTURAMA AI CREW ENGINE</div>
-  <div class="version-badge">VERSION 4.0 — NO SERVER REQUIRED</div>
-  <p class="hero-tagline">Chat with all 18 Futurama characters, run hands-free sitcom episodes, and explore the Professor's lab. Powered by your own API key — no Python, no server, no installation beyond the extension.</p>
+  <div class="version-badge">NO SERVER REQUIRED</div>
+  <p class="hero-tagline">Chat with all 18 Futurama characters, run hands-free sitcom episodes, and explore the Professor's lab. Powered by your own API key — no Python, no server, no installation beyond the extension. <strong style="color:var(--gold)">No API key yet? Demo Mode lets you hear the voices and watch an episode first.</strong></p>
   <div class="cta-row">
     <button class="cta-btn cta-primary" onclick="window.close()">📺 OPEN THE SIDEBAR</button>
     <a class="cta-btn cta-secondary" href="https://console.groq.com" target="_blank">🔑 GET FREE GROQ KEY</a>
@@ -95,9 +95,20 @@ footer{position:relative;z-index:1;width:100%;text-align:center;padding:24px 20p
       <div class="step-num">2</div>
       <div class="step-body">
         <div class="step-label">Paste your key in Settings</div>
-        <div class="step-desc">Open the sidebar → <strong>⚙️ Settings</strong> → select provider, paste your key, press <strong>💾 Save &amp; Connect</strong>. The status dot turns green. Done.</div>
+        <div class="step-desc">Open the sidebar → <strong>⚙️ Settings</strong> → select provider, paste your key, press <strong>💾 Save &amp; Connect</strong>. The status dot turns green. Demo Mode exits. Full access enabled.</div>
       </div>
     </div>
+  </div>
+  <div style="margin-top:14px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);font-size:12px;color:var(--fg2);line-height:1.6">
+    <strong style="color:var(--gold)">Optional — Premium expressive voices:</strong> by default, character voices use your
+    operating system's built-in speech engine (or Chrome's, as a fallback). For higher-quality, more expressive
+    voices across all 18 characters, add an <strong>ElevenLabs</strong> key in
+    <strong>⚙️ Settings → 🎙️ Voice Engine → 💎 ElevenLabs</strong>. Sensible default voices are pre-assigned to all 6 voice
+    categories, and you can swap in your own favorites from the ElevenLabs Voice
+    Library any time. <strong>Note:</strong> ElevenLabs' free tier does not include API access for text-to-speech —
+    a paid ElevenLabs plan is required for this to work. Without one, the extension automatically falls back to
+    OS/Chrome voices. This is a separate, optional premium key billed to your own ElevenLabs account. Not required
+    for any other feature.
   </div>
 </div>
 
@@ -107,7 +118,7 @@ footer{position:relative;z-index:1;width:100%;text-align:center;padding:24px 20p
     <div class="provider-card recommended">
       <div class="provider-rec">★ RECOMMENDED</div>
       <div class="provider-name">GROQ</div>
-      <div class="provider-desc">Free tier. Llama 3.3 70B at ~500 tokens/sec — fast enough for natural conversation flow and autopilot episodes.</div>
+      <div class="provider-desc">Free tier. Recommended: llama-3.1-8b-instant — fast with generous rate limits, plenty smart for crew banter. llama-3.3-70b-versatile is available too if you want more depth.</div>
       <a class="provider-link" href="https://console.groq.com" target="_blank">console.groq.com →</a>
     </div>
     <div class="provider-card">
@@ -126,12 +137,29 @@ footer{position:relative;z-index:1;width:100%;text-align:center;padding:24px 20p
 <div class="section">
   <div class="section-title">📡 Features</div>
   <div class="features">
-    <div class="feature"><div class="feature-icon">💬</div><div class="feature-name">Ensemble Chat</div><div class="feature-desc">Send a message — the best-matched crew member responds, with 1-2 others chiming in based on topic.</div></div>
-    <div class="feature"><div class="feature-icon">🤖</div><div class="feature-name">Autopilot</div><div class="feature-desc">The crew picks its own topic and debates through a full sitcom episode arc — cold open to button joke — hands free.</div></div>
-    <div class="feature"><div class="feature-icon">🧪</div><div class="feature-name">Professor's Lab</div><div class="feature-desc">Generate an LLM-powered invention, send it to the crew, and play five interactive Futurama mini-apps.</div></div>
-    <div class="feature"><div class="feature-icon">🎙️</div><div class="feature-name">Character TTS</div><div class="feature-desc">18 distinct pitch + rate profiles via Chrome's native TTS. Individual mute toggles per character.</div></div>
-    <div class="feature"><div class="feature-icon">📌</div><div class="feature-name">Cold Storage</div><div class="feature-desc">Pin any exchange. Export any pin as a printable PDF. Stored entirely in your local browser IndexedDB.</div></div>
+    <div class="feature"><div class="feature-icon">🎬</div><div class="feature-name">Demo Mode</div><div class="feature-desc">No API key? No problem. Demo Mode activates automatically — scripted crew exchanges with full TTS voices, and a complete pre-written autopilot episode. Exits permanently when you connect a key.</div></div>
+    <div class="feature"><div class="feature-icon">💬</div><div class="feature-name">Ensemble Chat</div><div class="feature-desc">Send a message — the best-matched crew member responds instantly. LLM router + keyword matching picks the right voice every time.</div></div>
+    <div class="feature"><div class="feature-icon">🤖</div><div class="feature-name">Autopilot</div><div class="feature-desc">The crew picks its own topic and debates through a full sitcom episode arc — cold open to button joke — hands free. Pause, resume, save, and summarise.</div></div>
+    <div class="feature"><div class="feature-icon">🧪</div><div class="feature-name">Professor's Lab</div><div class="feature-desc">Generate an LLM-powered invention, send it to the crew, recycle scraps into Dark Matter, and unlock four Dark Matter Widgets below.</div></div>
+    <div class="feature"><div class="feature-icon">🎙️</div><div class="feature-name">Character Voices</div><div class="feature-desc">OS voices (Windows/macOS) prioritised for richer audio. 18 distinct pitch and rate profiles. Master volume, per-character mutes, and Chrome voice override toggle.</div></div>
+    <div class="feature"><div class="feature-icon">📌</div><div class="feature-name">Cold Storage</div><div class="feature-desc">Pin any message, save AI summaries, or store full transcripts. Export any saved item as a printable document, or share it to Reddit, Facebook, X, or Email. Stored entirely in your local browser IndexedDB.</div></div>
     <div class="feature"><div class="feature-icon">💀</div><div class="feature-name">Chaos Mode</div><div class="feature-desc">TV-appropriate profanity, maximum fourth-wall breakage, and inter-character insults. Use responsibly.</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">⚛️ Dark Matter Widgets</div>
+  <p style="font-size:13px;color:var(--fg2);margin-bottom:14px">
+    Four mini-games live in the Lab, spending the same Dark Matter pool as the Invention system.
+    Earn Dark Matter passively: <strong>1–3 ⚛️</strong> every 5 seconds while exploring tabs,
+    <strong>5–11 ⚛️</strong> every 5 seconds while Autopilot runs, <strong>1 ⚛️</strong> per chat
+    message you send, plus the usual invention scrapping &amp; recycling rewards.
+  </p>
+  <div class="features">
+    <div class="feature"><div class="feature-icon">📡</div><div class="feature-name">Aurebesh Relay</div><div class="feature-desc">Decrypt the alien glyph network in three sequential tiers, each unlocking the next: view the Aurebesh archive (50 ⚛️), then activate a live English ↔ Aurebesh translator (100 ⚛️), then breach the frequency to intercept encrypted crew chatter (50 ⚛️).</div></div>
+    <div class="feature"><div class="feature-icon">📜</div><div class="feature-name">Expedition Log</div><div class="feature-desc">Break the wax seal (75 ⚛️) on the Captain's journal, then log unlimited AI-generated expedition reports from the crew's deliveries.</div></div>
+    <div class="feature"><div class="feature-icon">👃</div><div class="feature-name">Smell-O-Scope™</div><div class="feature-desc">Sniff for lore (50 ⚛️ per scan) — pulls a random Futurama fact, easter egg, or trivia entry, plus an in-character crew reaction. Builds your Lab Notes collection.</div></div>
+    <div class="feature"><div class="feature-icon">🥤</div><div class="feature-name">Beverage Machine</div><div class="feature-desc">Dispense a Slurm can (25 ⚛️ per spin). Weighted rarity — collect 8 flavours, from Original to the secret 1%-drop Milk. ♻️ Recycle extras for Dark Matter (5–250 ⚛️ by rarity), with a ×N counter per flavour.</div></div>
   </div>
 </div>
 
@@ -185,7 +213,7 @@ footer{position:relative;z-index:1;width:100%;text-align:center;padding:24px 20p
 </div>
 
 <footer>
-  Planet Express Lounge v4.0 &nbsp;·&nbsp; Chrome Extension MV3 &nbsp;·&nbsp; Serverless
+  Planet Express Lounge &nbsp;·&nbsp; Chrome Extension MV3 &nbsp;·&nbsp; Serverless
   <br><span style="opacity:.4;font-size:10px">"Good news, everyone!" — Professor Hubert J. Farnsworth</span>
 </footer>
 

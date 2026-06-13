@@ -1,5 +1,5 @@
 /**
- * sidepanel.js  —  Planet Express Lounge v4.0
+ * sidepanel.js  —  Planet Express Lounge
  *
  * Serverless. All LLM calls, DB operations, and crew logic run
  * client-side via crew.js, llm.js, database.js, and prompts.js.
@@ -9,12 +9,16 @@
 import { db }          from "./database.js";
 import { LLMClient }   from "./llm.js";
 import { Crew }        from "./crew.js";
-import { tts }         from "./tts.js";
+import { tts, setChromeVoiceOverride, setElevenLabsKey, setElevenLabsVoiceIds } from "./tts.js";
 import {
   CHARS, CREW_WEIGHTS, FULL_CAST,
   PROVIDERS, PROVIDER_GROQ, PROVIDER_OR, PROVIDER_GEM,
   GROQ_MODELS, OR_MODELS, GEM_MODELS, DEFAULT_MODEL, TEMPERATURE,
+  DEMO_EPISODE, DEMO_CHAT_SCRIPT, EPISODE_SUMMARY_SYS,
 } from "./prompts.js";
+// Dark Matter widgets (Alphabet, Archive, Smelloscope, Slurm) live in lab.js
+// (a separate <script type="module"> loaded by sidepanel.html), rendered via
+// window.LabModule.renderDarkMatterWidgets().
 
 // ── DOM helpers ──────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -34,7 +38,6 @@ let disabledAgents = new Set();
 let _mutedVoices   = new Set();
 let _voiceSpeed    = 1.0;
 let fontSize       = 14;
-let _chatAbort     = null;   // AbortController for current chat run
 
 /** @type {LLMClient|null} */
 let llmClient = null;
@@ -48,13 +51,13 @@ const CHAR_COLOR = Object.fromEntries(
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 document.querySelectorAll(".tab").forEach(tab => {
-  tab.addEventListener("click", () => {
+  tab.addEventListener("click", async () => {
     const id = tab.dataset.tab;
     document.querySelectorAll(".tab").forEach(t  => t.classList.remove("active"));
     document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
     tab.classList.add("active");
     $(`panel-${id}`)?.classList.add("active");
-    if (id === "lab")      _startLabWidgets();
+    if (id === "lab")      { window.LabModule?.startLabWidgets(); window.LabModule?.renderPatentOffice(); await window.LabModule?.renderDarkMatterWidgets(); }
     if (id === "cold")     loadPins();
     if (id === "settings") loadDataSummary();
   });
@@ -73,6 +76,168 @@ function _hideFirstRunCard() {
   if (card) { card.style.display = "none"; }
 }
 
+// ── DEMO MODE ─────────────────────────────────────────────────────────────────
+// Active only when no API key is connected.
+// Completely removed the instant _initLLM succeeds — no state leaks into live.
+
+let _demoActive    = false;
+let _demoChatIdx   = 0;
+let _demoApRunning = false;
+let _demoApTimer   = null;
+
+const demoChatPanel   = $("demoChatPanel");
+const demoChatLog     = $("demoChatLog");
+const demoNextBtn     = $("demoNextBtn");
+const demoCounterEl   = $("demoCounter");
+const demoSettingsBtn = $("demoSettingsBtn");
+const apDemoBanner    = $("apDemoBanner");
+
+function _enterDemoMode() {
+  _demoActive  = true;
+  _demoChatIdx = 0;
+  if (demoChatPanel) demoChatPanel.style.display = "flex";
+  const chatlogEl = $("chatlog");
+  const footerEl  = document.querySelector(".chat-footer");
+  if (chatlogEl)  chatlogEl.style.display  = "none";
+  if (footerEl)   footerEl.style.display   = "none";
+  if (demoChatLog) _renderDemoExchange(0);
+  _updateDemoCounter();
+}
+
+function _exitDemoMode() {
+  _demoActive = false;
+  _stopDemoAutopilot();
+  if (demoChatPanel) demoChatPanel.style.display = "none";
+  const chatlogEl = $("chatlog");
+  const footerEl  = document.querySelector(".chat-footer");
+  if (chatlogEl)  chatlogEl.style.display  = "";
+  if (footerEl)   footerEl.style.display   = "";
+  if (apDemoBanner) apDemoBanner.style.display = "none";
+  if (demoChatLog)  demoChatLog.innerHTML  = "";
+}
+
+function _renderDemoExchange(idx) {
+  if (!demoChatLog) return;
+  const item = DEMO_CHAT_SCRIPT[idx];
+  if (!item) return;
+
+  const exchange       = document.createElement("div");
+  exchange.className   = "demo-exchange";
+
+  const userBubble       = document.createElement("div");
+  userBubble.className   = "demo-user-bubble";
+  userBubble.textContent = item.userPrompt;
+
+  const agentData = CHARS[item.agent] || ["Crew", "🤖", "#ABB2BF"];
+  const nameRow       = document.createElement("div");
+  nameRow.className   = "demo-agent-name";
+  nameRow.style.color = agentData[2];
+  nameRow.textContent = `${agentData[1]} ${agentData[0]}`;
+
+  const agentBubble       = document.createElement("div");
+  agentBubble.className   = "demo-agent-bubble";
+  agentBubble.style.borderColor = `color-mix(in srgb, ${agentData[2]} 30%, var(--border))`;
+  agentBubble.appendChild(nameRow);
+
+  const responseText       = document.createElement("div");
+  responseText.textContent = item.response;
+  agentBubble.appendChild(responseText);
+
+  exchange.appendChild(userBubble);
+  exchange.appendChild(agentBubble);
+  demoChatLog.appendChild(exchange);
+  demoChatLog.scrollTop = demoChatLog.scrollHeight;
+
+  // Real TTS — same voices the user will hear in live mode
+  tts.speak(item.response, item.agent);
+}
+
+function _updateDemoCounter() {
+  if (!demoCounterEl || !demoNextBtn) return;
+  const total = DEMO_CHAT_SCRIPT.length;
+  demoCounterEl.textContent = `${Math.min(_demoChatIdx + 1, total)} / ${total}`;
+  demoNextBtn.disabled      = (_demoChatIdx >= total - 1);
+  demoNextBtn.textContent   = (_demoChatIdx >= total - 1) ? "✓ Done" : "Next ›";
+}
+
+if (demoNextBtn) {
+  demoNextBtn.addEventListener("click", () => {
+    if (_demoChatIdx < DEMO_CHAT_SCRIPT.length - 1) {
+      _demoChatIdx++;
+      _renderDemoExchange(_demoChatIdx);
+      _updateDemoCounter();
+    }
+  });
+}
+if (demoSettingsBtn) {
+  demoSettingsBtn.addEventListener("click", () => {
+    document.querySelector('.tab[data-tab="settings"]')?.click();
+  });
+}
+
+// ── Demo Autopilot ────────────────────────────────────────────────────────────
+// Plays DEMO_EPISODE through the real handleEmit pipeline — same TTS, same
+// turn display, same AP card controls. No special rendering path needed.
+
+function _runDemoAutopilot() {
+  if (_demoApRunning) return;
+  _demoApRunning = true;
+  if (apDemoBanner)          apDemoBanner.style.display = "";
+  const apStreamEl = $("ap-stream");
+  if (apStreamEl)            apStreamEl.innerHTML = "";
+
+  let idx = 0;
+  const step = () => {
+    if (!_demoApRunning || idx >= DEMO_EPISODE.length) {
+      _demoApRunning = false;
+      handleEmit({ type: "ap_done" });
+      return;
+    }
+    const evt = DEMO_EPISODE[idx++];
+
+    // DEMO_EPISODE pairs a standalone {type:"speaker", agent} entry with a
+    // following {type:"turn_end", agent, text} entry for the same line.
+    // The turn_end branch below already emits its own "speaker" event right
+    // before streaming tokens, so passing this standalone one through to
+    // handleEmit() creates an empty duplicate turn header for the character
+    // (the crew member appears twice — once with no text, once with the
+    // actual line). Skip it; the turn_end entry handles the speaker change.
+    if (evt.type === "speaker") {
+      step();
+      return;
+    }
+
+    if (evt.type === "turn_end") {
+      handleEmit({ type: "speaker", agent: evt.agent });
+      const words = evt.text.split(" ");
+      let wi = 0;
+      const wordTick = () => {
+        if (wi < words.length) {
+          handleEmit({ type: "token", agent: evt.agent, text: (wi === 0 ? "" : " ") + words[wi++] });
+          _demoApTimer = setTimeout(wordTick, 38);
+        } else {
+          handleEmit({ type: "turn_end", agent: evt.agent });
+          const breathMs = Math.min(180 + evt.text.length * 22, 4500);
+          _demoApTimer = setTimeout(step, breathMs);
+        }
+      };
+      wordTick();
+    } else {
+      handleEmit(evt);
+      _demoApTimer = setTimeout(step, evt.type === "ep_title" ? 1400 : 600);
+    }
+  };
+  step();
+}
+
+function _stopDemoAutopilot() {
+  _demoApRunning = false;
+  isAutopilot    = false;  // ensure handleEmit routes back to chatlog
+  if (_demoApTimer) { clearTimeout(_demoApTimer); _demoApTimer = null; }
+  tts.stop();
+  if (apDemoBanner) apDemoBanner.style.display = "none";
+}
+
 // ── Status bar ────────────────────────────────────────────────────────────────
 function setStatus(msg, timeout = 0) {
   const bar = $("statusBar");
@@ -86,9 +251,7 @@ function autoScroll(el) {
   el.scrollTop = el.scrollHeight;
 }
 
-// ── TTS ───────────────────────────────────────────────────────────────────────
-// ── TTS is handled by TTSQueueManager (tts.js) ─────────────────────────────
-// VOICE_PITCH table and speak() have been replaced by tts.push() / tts.flush().
+// ── TTS is handled by TTSQueueManager (tts.js) — push()/flush() per agent.
 // tts.setRate() and tts.setMuted() are called from settings handlers below.
 
 // ── Chat rendering ────────────────────────────────────────────────────────────
@@ -98,6 +261,79 @@ const apStream = $("ap-stream");
 let _activeTurnDiv  = null;
 let _activeTurnBody = null;
 let _activeAgent    = null;
+
+// ── Social Share Menu ───────────────────────────────────────────────────────
+// Replaces the old "copy to clipboard" share buttons with real social-share
+// intents. Each target opens a share-intent URL in a new tab pre-filled with
+// the quote text (and, where the platform requires it, a link back to the
+// project so the share isn't a bare floating quote).
+const SHARE_HOMEPAGE = "https://github.com/dhseadev/planet-express-lounge";
+
+const SHARE_TARGETS = [
+  { id: "reddit",   label: "Reddit",      icon: "👽",
+    url: text => `https://www.reddit.com/submit?type=TEXT&title=${encodeURIComponent(_shareTitle(text))}&text=${encodeURIComponent(text)}` },
+  { id: "facebook", label: "Facebook",    icon: "📘",
+    url: text => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SHARE_HOMEPAGE)}&quote=${encodeURIComponent(text)}` },
+  { id: "twitter",  label: "X / Twitter", icon: "🐦",
+    url: text => `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}` },
+  { id: "email",    label: "Email",       icon: "✉️",
+    url: text => `mailto:?subject=${encodeURIComponent(_shareTitle(text))}&body=${encodeURIComponent(text)}` },
+];
+
+function _shareTitle(text) {
+  const firstLine = text.split("\n")[0].slice(0, 80);
+  return firstLine || "Planet Express Lounge";
+}
+
+let _activeShareMenu = null;
+
+/**
+ * Opens a small popup menu of social share targets anchored to `btnEl`.
+ * `text` is the plain-text quote to share. Dismisses on outside click or Esc.
+ */
+function openShareMenu(text, btnEl) {
+  if (!text.trim()) return;
+  _activeShareMenu?.remove();
+
+  const menu = document.createElement("div");
+  menu.className = "share-menu";
+  menu.setAttribute("role", "menu");
+
+  for (const target of SHARE_TARGETS) {
+    const item = document.createElement("button");
+    item.className = "share-menu-item";
+    item.textContent = `${target.icon} ${target.label}`;
+    item.addEventListener("click", () => {
+      window.open(target.url(text), "_blank", "noopener,noreferrer");
+      menu.remove();
+      _activeShareMenu = null;
+    });
+    menu.appendChild(item);
+  }
+
+  document.body.appendChild(menu);
+  _activeShareMenu = menu;
+
+  const rect = btnEl.getBoundingClientRect();
+  menu.style.position = "fixed";
+  menu.style.top  = `${rect.bottom + 4}px`;
+  menu.style.left = `${Math.max(4, rect.right - menu.offsetWidth)}px`;
+
+  const dismiss = (e) => {
+    if (menu.contains(e.target) || e.target === btnEl) return;
+    menu.remove();
+    _activeShareMenu = null;
+    document.removeEventListener("click", dismiss, true);
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const onKey = (e) => { if (e.key === "Escape") dismiss(e); };
+  // Defer so the click that opened the menu doesn't immediately dismiss it.
+  setTimeout(() => {
+    document.addEventListener("click", dismiss, true);
+    document.addEventListener("keydown", onKey, true);
+  }, 0);
+}
+
 
 function startTurn(agentId) {
   const log    = isAutopilot ? apStream : chatlog;
@@ -127,24 +363,17 @@ function startTurn(agentId) {
   pin.addEventListener("click", () => pinExchange(agentId, body.textContent || ""));
   div.appendChild(pin);
 
-  // Share button — copies plain-text quote to clipboard
+  // Share button — opens a social-share menu (Reddit/Facebook/X/Email)
   const shareBtn = document.createElement("button");
   shareBtn.className   = "pin-btn share-btn";
   shareBtn.textContent = "🔗";
   shareBtn.title       = "Share this line";
-  shareBtn.style.marginLeft = "2px";
   shareBtn.addEventListener("click", () => {
     const text = body.textContent || "";
     if (!text.trim()) return;
-    const [charName,,] = (CHARS[agentId] || [agentId]);
-    const plain = `${charName}: "${text.trim()}"
-
-AI fan parody — Planet Express Lounge | #DHSeaDev`;
-    navigator.clipboard.writeText(plain).then(() => {
-      setStatus("📋 Copied to clipboard — ready to share!", 2500);
-      shareBtn.textContent = "✓";
-      setTimeout(() => { shareBtn.textContent = "🔗"; }, 1800);
-    }).catch(() => setStatus("⚠️ Clipboard copy failed.", 2000));
+    const [charName] = (CHARS[agentId] || [agentId]);
+    const plain = `${charName}: "${text.trim()}"\n\nAI fan parody — Planet Express Lounge | #DHSeaDev`;
+    openShareMenu(plain, shareBtn);
   });
   div.appendChild(shareBtn);
 
@@ -250,9 +479,16 @@ function handleEmit(evt) {
       appendEpTitle(evt.title);
       break;
 
-    case "scheme_update":
-      appendSystemBubble(`🤖 Bender's new scheme: ${evt.scheme}`, "scheme-bubble", CHAR_COLOR.BENDER);
+    case "scheme_update": {
+      // Each refreshed scheme pays out a small Dark Matter "profit".
+      const SCHEME_PROFIT = 10;
+      appendSystemBubble(
+        `🤖 Bender's new scheme: ${evt.scheme} (+${SCHEME_PROFIT} ⚛️ "profit")`,
+        "scheme-bubble", CHAR_COLOR.BENDER
+      );
+      window.earnDarkMatter?.(SCHEME_PROFIT, "Bender's scheme profit").catch(() => {});
       break;
+    }
 
     case "invention_complication":
       appendSystemBubble(`🧪 Plot twist: ${evt.invention} is now a factor.`, "inv-bubble", CHAR_COLOR.PROF);
@@ -260,6 +496,7 @@ function handleEmit(evt) {
 
     case "ap_episode_end":
       appendSystemBubble(`— End of episode —`, "ep-end-bubble");
+      _recordDelivery();
       break;
 
     case "ap_done":
@@ -271,10 +508,6 @@ function handleEmit(evt) {
 
     case "invention":
       _showInvention(evt.text);
-      break;
-
-    case "journal":
-      _showJournal(evt.text);
       break;
 
     case "previously":
@@ -297,13 +530,22 @@ function appendEpTitle(title) {
   div.textContent = `"${title}"`;
   apStream.appendChild(div);
   autoScroll(apStream);
+
+  // Narrator voice announces the episode title — a classic cold-open
+  // "Tonight's episode" beat, and gives the Narrator character (otherwise
+  // mostly silent outside "Previously on..." recaps) an actual TTS line
+  // at the top of every Autopilot episode.
+  tts.push(`Tonight's episode: "${title}".`, "NARRATOR");
+  tts.flush("NARRATOR");
 }
 
 // ── Send message ──────────────────────────────────────────────────────────────
 const chatInput = $("chatInput");
 const sendBtn   = $("sendBtn");
 const chatStopBtn  = $("chatStopBtn");
+const chatStopAudioBtn = $("chatStopAudioBtn");
 const chatMuteBtn  = $("chatMuteBtn");
+const chatSummaryBtn = $("chatSummaryBtn");
 
 // ── Rate limiter ─────────────────────────────────────────────────────────────
 // Hard limit: one LLM request per 3 seconds. If violated, the request is denied
@@ -350,6 +592,12 @@ function stopChat() {
   setStatus("Stopped.");
 }
 if (chatStopBtn) chatStopBtn.addEventListener("click", stopChat);
+
+// ── Chat stop-audio button ──────────────────────────────────────────────────
+// Stops TTS playback only — unlike chatStopBtn, doesn't cancel an in-flight
+// LLM response, and stays available even after generation finishes (audio
+// can keep playing well after the text stream completes).
+if (chatStopAudioBtn) chatStopAudioBtn.addEventListener("click", () => tts.stop());
 
 // ── Chat mute button ─────────────────────────────────────────────────────────
 if (chatMuteBtn) {
@@ -420,6 +668,13 @@ async function sendMessage() {
   }
   const msg = (chatInput?.value || "").trim();
   if (!msg) return;
+
+  // A new prompt takes priority over whatever TTS is still playing from the
+  // previous response (the text stream finishes well before the TTS queue
+  // drains it). Without this, the old response keeps talking while the new
+  // one starts streaming/talking too. Does NOT touch the LLM stream itself
+  // — only clears the speech queue/audio.
+  tts.stop();
 
   // SET isSending IMMEDIATELY — before any await — to block re-entry
   isSending = true;
@@ -495,7 +750,7 @@ function setSendState(sending) {
 
 // ── Autopilot ─────────────────────────────────────────────────────────────────
 const apToggle = $("apToggle");
-if (apToggle) apToggle.addEventListener("click", toggleAutopilot);
+if (apToggle) apToggle.addEventListener("click", () => toggleAutopilot());
 
 // ── Sound/Pause button ───────────────────────────────────────────────────────
 // When OFF: stops TTS, pauses autopilot (cancels current LLM request, stops loop),
@@ -546,7 +801,7 @@ if (muteBtn) {
 
 let _apStopRequested = false;  // drain flag — drops late tokens after stop
 
-async function toggleAutopilot() {
+async function toggleAutopilot(seedTopic = null) {
   if (isAutopilot) {
     _apStopRequested = true;
     _apPaused = false;
@@ -561,8 +816,18 @@ async function toggleAutopilot() {
     return;
   }
   if (!crew || !llmClient) {
-    setStatus("⚠️ No API key — go to Settings.");
-    document.querySelector('.tab[data-tab="settings"]')?.click();
+    // No API key — run the hardcoded demo episode instead of redirecting to settings
+    if (_demoApRunning) {
+      _stopDemoAutopilot();
+      isAutopilot = false;
+      setApState(false);
+      setStatus("Demo episode stopped.");
+    } else {
+      isAutopilot = true;   // route handleEmit output to apStream, not chatlog
+      setApState(true);
+      setStatus("▶ Demo episode — connect an API key for live episodes.");
+      _runDemoAutopilot();
+    }
     return;
   }
   if (!currentSid) await _newSession();
@@ -577,7 +842,7 @@ async function toggleAutopilot() {
   FULL_CAST.forEach(a => { crew.enabled[a] = !disabledAgents.has(a); });
 
   try {
-    await crew.startAutopilot(currentSid, handleEmit);
+    await crew.startAutopilot(currentSid, handleEmit, seedTopic);
   } catch (e) {
     if (e.name !== "AbortError") setStatus(`Autopilot error: ${e.message}`);
     isAutopilot = false;
@@ -596,6 +861,9 @@ function setApState(on) {
   if (apPauseBtn) apPauseBtn.style.display = on ? "flex" : "none";
   // Enable/disable save button
   if (apSaveBtn) apSaveBtn.disabled = !on && !apStream?.children.length;
+  // Re-sync TTS provider so the selected voice pack (ElevenLabs/OS/Chrome)
+  // is active for this episode, even if it was changed since the last run.
+  if (on) _setVoiceEngineMode(_voiceEngineMode, { persist: false });
 }
 
 // Pause / Resume button
@@ -645,7 +913,7 @@ async function saveApTranscriptToColdStorage() {
     const date    = new Date().toLocaleString();
     const DISCLAIMER = "Futurama and all related characters are the intellectual property of The Walt Disney Company / 20th Television Animation. Non-commercial AI-generated parody under fair use (17 U.S.C. § 107). Planet Express Lounge — Unofficial fan project — #DHSeaDev";
     const text    = `PLANET EXPRESS AUTOPILOT\n${date}\n${"─".repeat(40)}\n\n${lines.join("\n\n")}\n\n${"─".repeat(40)}\n${DISCLAIMER}`;
-    await db.savePin("AUTOPILOT", text.slice(0, 2000), `Autopilot — ${date}`);
+    await db.savePin("AUTOPILOT", text.slice(0, 6000), `Autopilot — ${date}`);
     setStatus("📌 Episode saved to Cold Storage.", 2500);
     document.querySelector('.tab[data-tab="cold"]')?.click();
   } catch (e) {
@@ -672,7 +940,7 @@ async function saveChatToColdStorage() {
     if (!lines.length) { setStatus("Nothing to save yet."); return; }
     const label = `Chat — ${new Date().toLocaleString()}`;
     const DISCLAIMER_CHAT = "\n\n───\nFuturama and related characters © The Walt Disney Company / 20th Television Animation. Non-commercial AI parody — fair use (17 U.S.C. § 107). Planet Express Lounge — #DHSeaDev";
-    await db.savePin("TRANSCRIPT", (lines.join("\n\n---\n\n") + DISCLAIMER_CHAT).slice(0, 2000), label);
+    await db.savePin("TRANSCRIPT", (lines.join("\n\n---\n\n") + DISCLAIMER_CHAT).slice(0, 6000), label);
     setStatus("📌 Chat saved to Cold Storage.", 2500);
   } catch (e) {
     setStatus(`Save error: ${e.message}`);
@@ -680,6 +948,67 @@ async function saveChatToColdStorage() {
     chatSaveBtn.textContent = "📌"; chatSaveBtn.disabled = !currentSid;
   }
 }
+
+// ── Episode / Chat Summary → Cold Storage ───────────────────────────────────
+// Generates a structured ~1000-token recap (purpose, problem, solution, joke,
+// challenge, surprise, resolution — see EPISODE_SUMMARY_SYS in prompts.js)
+// via a single non-streaming LLM call, saved directly to Cold Storage.
+// Reference document only — never printed to chat/autopilot, never spoken.
+async function _generateSummary(rawText, label, btnEl) {
+  if (!llmClient) { setStatus("⚠️ No API key — go to Settings."); return; }
+  if (!rawText.trim()) { setStatus("Nothing to summarize yet."); return; }
+
+  const original = btnEl?.textContent;
+  if (btnEl) { btnEl.textContent = "⏳"; btnEl.disabled = true; }
+  setStatus("📋 Writing summary…");
+
+  try {
+    // ~1000 tokens out; cap transcript input so very long episodes don't
+    // blow the context window (most providers handle 12k chars easily).
+    const summary = await llmClient.complete(EPISODE_SUMMARY_SYS, rawText.slice(0, 12000), 1000);
+    if (!summary.trim()) {
+      setStatus("⚠️ Summary came back empty — try again.");
+      return;
+    }
+    await db.savePin("SUMMARY", summary.trim(), label);
+    setStatus("📋 Summary saved to Cold Storage.", 3000);
+    document.querySelector('.tab[data-tab="cold"]')?.click();
+  } catch (e) {
+    setStatus(`Summary error: ${e.message}`);
+  } finally {
+    if (btnEl) { btnEl.textContent = original; btnEl.disabled = false; }
+  }
+}
+
+if (chatSummaryBtn) chatSummaryBtn.addEventListener("click", () => {
+  const lines = [];
+  chatlog.querySelectorAll(".turn").forEach(turn => {
+    const hdr  = turn.querySelector(".turn-header")?.textContent?.trim() || "";
+    const body = turn.querySelector(".turn-body")?.textContent?.trim()   || "";
+    if (body) lines.push(`${hdr}\n${body}`);
+  });
+  _generateSummary(lines.join("\n\n---\n\n"), `Chat Summary — ${new Date().toLocaleString()}`, chatSummaryBtn);
+});
+
+const apSummaryBtn = $("apEpSummaryBtn");
+if (apSummaryBtn) apSummaryBtn.addEventListener("click", () => {
+  const lines = [];
+  apStream.querySelectorAll(".ap-topic-banner,.ep-title-banner").forEach(el => {
+    const t = el.textContent.trim();
+    if (t) lines.push(t);
+  });
+  apStream.querySelectorAll(".turn").forEach(turn => {
+    const hdr  = turn.querySelector(".turn-header")?.textContent?.trim() || "";
+    const body = turn.querySelector(".turn-body")?.textContent?.trim()   || "";
+    if (body) lines.push(hdr ? `${hdr}\n${body}` : body);
+  });
+  apStream.querySelectorAll(".system-bubble").forEach(el => {
+    const t = el.textContent.trim();
+    if (t) lines.push(t);
+  });
+  const epTitle = apStream.querySelector(".ep-title-banner")?.textContent?.trim() || "";
+  _generateSummary(lines.join("\n\n---\n\n"), `Episode Summary ${epTitle} — ${new Date().toLocaleString()}`, apSummaryBtn);
+});
 
 // ── Cold Storage ──────────────────────────────────────────────────────────────
 const coldList   = $("coldStorageList");
@@ -709,10 +1038,12 @@ async function loadPins() {
       </div>
       <div class="cold-pin-text">${escHtml(pin.text)}</div>
       <div class="cold-pin-actions">
+        <button class="cold-pin-share" data-id="${pin.id}" title="Share to Reddit, Facebook, X, or Email">🔗 SHARE</button>
         <button class="cold-pin-pdf" data-id="${pin.id}" title="Export as PDF">📄 PDF</button>
         <button class="cold-pin-del" data-id="${pin.id}" title="Delete">🗑️ Delete</button>
       </div>`;
 
+    row.querySelector(".cold-pin-share").addEventListener("click", (e) => shareColdStoragePin(pin, e.currentTarget));
     row.querySelector(".cold-pin-pdf").addEventListener("click", () => exportPinAsPdf(pin));
     row.querySelector(".cold-pin-del").addEventListener("click", async () => {
       row.classList.add("deleting");
@@ -729,6 +1060,15 @@ async function pinExchange(agent, text) {
   if (!text.trim()) return;
   await db.savePin(agent, text.slice(0, 800), agent);
   setStatus("📌 Pinned to Cold Storage.", 2000);
+}
+
+// Open the social share menu for a Cold Storage pin (transcript, invention,
+// or quote) — same menu as the per-message 🔗 share button.
+function shareColdStoragePin(pin, btnEl) {
+  const [charName] = CHARS[pin.agent] || [pin.label || pin.agent];
+  const heading = pin.label && pin.label !== pin.agent ? pin.label : charName;
+  const plain = `${heading}\n\n"${pin.text.trim()}"\n\nAI fan parody — Planet Express Lounge | #DHSeaDev`;
+  openShareMenu(plain, btnEl);
 }
 
 function exportPinAsPdf({ agent, label, text, ts }) {
@@ -764,84 +1104,37 @@ function exportPinAsPdf({ agent, label, text, ts }) {
   }
 }
 
-// ── Lab — Invention ──────────────────────────────────────────────────────────
-const labInventBtn  = $("labInventBtn");
-const labDiscussBtn = $("labDiscussBtn");
-const labInvCard    = $("labInvCard");
-const labInvText    = $("labInvText");
-const labInvPlaceholder = $("labInvPlaceholder");
-const labDoomBar    = $("labDoomBar");
-const labDoomFill   = $("labDoomFill");
-const labDoomPct    = $("labDoomPct");
+// ── Lab — shared namespace (lab.js reads this via window.Lab) ────────────────
+// Defined with getters so each property is evaluated lazily on ACCESS, not at
+// definition time. This avoids ReferenceErrors for consts (db, crew, CHARS,
+// WIDGET_AFFIRMATIONS, etc.) that are declared further down the file —
+// by the time lab.js calls into LabModule (inside init(), after this whole
+// module has finished evaluating), every getter resolves correctly.
+// crew/llmClient also stay "live" automatically — no re-sync needed after
+// LLM connect, since each access re-reads the current module-scope variable.
+window.Lab = {
+  get db()                 { return db; },
+  get crew()                { return crew; },
+  get llmClient()           { return llmClient; },
+  get tts()                 { return tts; },
+  get setStatus()           { return setStatus; },
+  get sendMessage()         { return sendMessage; },
+  get CHARS()               { return CHARS; },
+  get WIDGET_AFFIRMATIONS() { return WIDGET_AFFIRMATIONS; },
+  get openShareMenu()       { return openShareMenu; },
+  get toggleAutopilot()     { return toggleAutopilot; },
+  get isAutopilot()         { return isAutopilot; },
+};
 
-if (labInventBtn) labInventBtn.addEventListener("click", genInvention);
-if (labDiscussBtn) labDiscussBtn.addEventListener("click", discussInvention);
 
-async function genInvention() {
-  if (!crew) {
-    setStatus("⚠️ Go to Settings and enter an API key first.");
-    document.querySelector('.tab[data-tab="settings"]')?.click();
-    return;
-  }
-  if (labInventBtn) labInventBtn.disabled = true;
-  if (labInvPlaceholder) labInvPlaceholder.style.display = "none";
-  if (labInvText) {
-    labInvText.style.display = "block";
-    labInvText.textContent = "Good news, everyone! The Professor is in his lab…";
-  }
-  try {
-    await crew.genInvention((evt) => {
-      if (evt.type === "invention") _showInvention(evt.text);
-    });
-  } catch(e) {
-    if (labInvText) labInvText.textContent = "⚠️ Invention generation failed: " + e.message;
-    setStatus("⚠️ " + e.message);
-  } finally {
-    if (labInventBtn) labInventBtn.disabled = false;
-  }
-}
 
-function _showInvention(text) {
-  if (labInvText) { labInvText.style.display = "block"; labInvText.textContent = text; }
-  if (labInvPlaceholder) labInvPlaceholder.style.display = "none";
-  if (labDiscussBtn) labDiscussBtn.disabled = false;
-  // Doom level: random 60-99 for drama
-  const doom = Math.floor(60 + Math.random() * 39);
-  if (labDoomBar) labDoomBar.style.display = "flex";
-  if (labDoomFill) labDoomFill.style.width = `${doom}%`;
-  if (labDoomPct)  labDoomPct.textContent = `${doom}%`;
-  if (crew) crew.todayInvention = text;
-}
-
-async function discussInvention() {
-  if (!crew || !crew.todayInvention) {
-    setStatus("⚠️ Generate an invention first!");
-    return;
-  }
-  // Switch to chat tab first, then queue the send on next tick
-  // so the tab switch and panel render complete before we send
-  document.querySelector('.tab[data-tab="chat"]')?.click();
-  await new Promise(r => setTimeout(r, 60));
-  if (chatInput) {
-    chatInput.value = `Tell me more about this invention: ${crew.todayInvention}`;
-    resizeInput();
-    sendMessage();
-  }
-}
-
-// ── Journal ───────────────────────────────────────────────────────────────────
-function _showJournal(text) {
-  setStatus("📋 Mission log saved!", 2500);
-  // Put in chat for visibility
-  appendSystemBubble(`📋 Mission Log:\n${text}`, "journal-bubble", CHAR_COLOR.PROF);
-}
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 async function loadSettings() {
   const saved = await chrome.storage.local.get([
-    "provider","model","groqKey","orKey","gemKey",
-    "wpm","fontSize","voiceSpeed","disabledAgents","mutedVoices",
-    "lightMode","chaosMode","audioMuted",
+    "provider","model","groqKey","orKey","gemKey","elevenLabsKey","elevenLabsVoices",
+    "wpm","fontSize","voiceSpeed","masterVolume","disabledAgents","mutedVoices",
+    "lightMode","chaosMode","audioMuted","chromeVoiceOverride","voiceEngineMode",
   ]);
 
   // Chaos mode
@@ -871,6 +1164,39 @@ async function loadSettings() {
   if (_vsSlider)  _vsSlider.value = _voiceSpeed;
   if (_vsDisplay) _vsDisplay.textContent = `${_voiceSpeed.toFixed(1)}x`;
 
+  // Master volume
+  const _vol       = saved.masterVolume !== undefined ? parseFloat(saved.masterVolume) : 1.0;
+  tts.setVolume(_vol);
+  const _volSlider  = $("volumeSlider");
+  const _volDisplay = $("volumeDisplay");
+  if (_volSlider)  _volSlider.value = _vol;
+  if (_volDisplay) _volDisplay.textContent = `${Math.round(_vol * 100)}%`;
+
+  // ── Voice Engine — 3-way exclusive mode (elevenlabs | os | chrome) ────────
+  // Load the saved key/voices first so _applyVoiceEngineMode has data to work with.
+  const elevenLabsKeyEl = $("elevenLabsKey");
+  if (elevenLabsKeyEl) elevenLabsKeyEl.value = saved.elevenLabsKey || "";
+  _savedElevenLabsKey = saved.elevenLabsKey || "";
+
+  const elevenLabsVoices = saved.elevenLabsVoices || {};
+  for (const [category, fieldId] of Object.entries(EL_CATEGORY_FIELDS)) {
+    const el = $(fieldId);
+    if (el) el.value = elevenLabsVoices[category] || "";
+  }
+  setElevenLabsVoiceIds(elevenLabsVoices);
+
+  // Determine starting mode: explicit saved choice, else infer from legacy fields
+  let _initialMode = saved.voiceEngineMode;
+  if (!_initialMode) {
+    _initialMode = saved.chromeVoiceOverride === true ? "chrome"
+                 : _savedElevenLabsKey ? "elevenlabs"
+                 : "os";
+  }
+  _setVoiceEngineMode(_initialMode, { persist: false });
+
+  // Defer status update until voices have loaded
+  setTimeout(_updateVoiceEngineStatus, 500);
+
   // WPM text speed
   _wpmValue = parseInt(saved.wpm) || 200;
   const _wpmSlider  = $("speedSlider");
@@ -891,6 +1217,15 @@ async function loadSettings() {
   if (groqKeyEl) groqKeyEl.value = saved.groqKey || "";
   if (orKeyEl)   orKeyEl.value   = saved.orKey   || "";
   if (gemKeyEl)  gemKeyEl.value  = saved.gemKey  || "";
+
+  // First-run / not-yet-configured: open the API Keys spoiler so new users
+  // see it immediately instead of needing to discover the collapsed section.
+  if (!saved.groqKey && !saved.orKey && !saved.gemKey) {
+    const _apiKeysSpoiler = $("apiKeysSpoiler");
+    const _apiKeysArrow   = $("apiKeysSpoilerArrow");
+    if (_apiKeysSpoiler) _apiKeysSpoiler.open = true;
+    if (_apiKeysArrow)   _apiKeysArrow.style.transform = "rotate(90deg)";
+  }
 
   // Disabled agents
   if (Array.isArray(saved.disabledAgents)) {
@@ -937,6 +1272,8 @@ function _initLLM(provider, model, groqKey, orKey, gemKey) {
     const card = $("firstRunCard");
     if (card) card.style.display = "";
     if (sendBtn) sendBtn.title = "Go to Settings first to connect your API key";
+    // Enter demo mode so the user can explore before connecting
+    _enterDemoMode();
     return;
   }
   try {
@@ -944,10 +1281,12 @@ function _initLLM(provider, model, groqKey, orKey, gemKey) {
     crew      = new Crew(llmClient, db, { chaos: chaosMode });
     setStatus("✓ Connected: " + llmClient.label, 3000);
     _applyDisabled();
+    // Exit demo mode permanently — restores real chat UI, clears demo state
+    _exitDemoMode();
     // Enable UI that requires a live LLM connection
     if (sendBtn)          { sendBtn.disabled = false; sendBtn.title = ""; }
-    if (labInventBtn)     labInventBtn.disabled = false;
-    if (chatSummaryBtnEl) chatSummaryBtnEl.disabled = false;
+    window.LabModule?.refreshInventBtn();
+    if (chatSummaryBtn)   chatSummaryBtn.disabled = false;
     if (chatSaveBtn)      chatSaveBtn.disabled = false;
     // Hide the first-run card — user has a working connection
     _hideFirstRunCard();
@@ -1142,7 +1481,8 @@ if (fontSlider) fontSlider.addEventListener("input", () => {
 });
 
 function _applyFontSize(size) {
-  document.documentElement.style.setProperty("--base-font-size", `${size}px`);
+  // .turn-body / .turn-header (chat text) read var(--chat-font-size).
+  document.documentElement.style.setProperty("--chat-font-size", `${size}px`);
 }
 
 // Voice speed slider
@@ -1154,6 +1494,229 @@ if (voiceSpeedSlider) voiceSpeedSlider.addEventListener("input", () => {
   tts.setRate(_voiceSpeed);
   chrome.storage.local.set({ voiceSpeed: _voiceSpeed }).catch(()=>{});
 });
+
+// Master volume slider
+const volumeSlider  = $("volumeSlider");
+const volumeDisplay = $("volumeDisplay");
+if (volumeSlider) volumeSlider.addEventListener("input", () => {
+  const vol = parseFloat(volumeSlider.value);
+  if (volumeDisplay) volumeDisplay.textContent = `${Math.round(vol * 100)}%`;
+  tts.setVolume(vol);
+  chrome.storage.local.set({ masterVolume: vol }).catch(()=>{});
+});
+
+// Speed & Display spoiler arrow
+const speedSpoilerEl    = $("speedSpoiler");
+const speedSpoilerArrow = $("speedSpoilerArrow");
+if (speedSpoilerEl && speedSpoilerArrow) {
+  speedSpoilerEl.addEventListener("toggle", () => {
+    speedSpoilerArrow.style.transform = speedSpoilerEl.open ? "rotate(90deg)" : "";
+  });
+}
+
+// ── Voice Engine — 3-way exclusive mode (elevenlabs | os | chrome) ───────────
+// Exactly one source is ever active. ElevenLabs/Chrome-override are mutually
+// exclusive at runtime via the existing setters — switching modes re-applies
+// them immediately, including mid-Autopilot (called again in setApState).
+let _voiceEngineMode    = "os";   // 'elevenlabs' | 'os' | 'chrome'
+let _savedElevenLabsKey = "";     // the user's stored key, kept even when not active
+
+function _setVoiceEngineMode(mode, { persist = true } = {}) {
+  if (!["elevenlabs", "os", "chrome"].includes(mode)) mode = "os";
+  _voiceEngineMode = mode;
+
+  switch (mode) {
+    case "elevenlabs":
+      setElevenLabsKey(_savedElevenLabsKey);
+      setChromeVoiceOverride(false);
+      break;
+    case "chrome":
+      setElevenLabsKey("");
+      setChromeVoiceOverride(true);
+      break;
+    default: // "os"
+      setElevenLabsKey("");
+      setChromeVoiceOverride(false);
+      break;
+  }
+
+  document.querySelectorAll(".voice-engine-opt").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.mode === mode);
+  });
+
+  if (persist) chrome.storage.local.set({ voiceEngineMode: mode }).catch(() => {});
+  _updateElevenLabsKeyStatus(!!_savedElevenLabsKey, mode);
+  _updateVoiceEngineStatus();
+}
+
+document.querySelectorAll(".voice-engine-opt").forEach(btn => {
+  btn.addEventListener("click", () => _setVoiceEngineMode(btn.dataset.mode));
+});
+
+// Surface ElevenLabs runtime failures (bad key, invalid voice, quota,
+// network, timeout) in the UI — a console.warn alone requires devtools to
+// notice, and a persistently-failing key silently sounds like "ElevenLabs
+// just doesn't work" with falls back to OS/Chrome voices and no visible
+// reason. Throttled so a barrage of per-sentence failures (e.g. every line
+// of an Autopilot episode hitting a 401) doesn't spam the status bar.
+let _lastElevenLabsErrorAt = 0;
+window.addEventListener("pel:elevenlabs-error", (e) => {
+  const now = Date.now();
+  if (now - _lastElevenLabsErrorAt < 8000) return; // at most once every 8s
+  _lastElevenLabsErrorAt = now;
+
+  const msg = e.detail?.message || "Unknown error";
+  setStatus(`⚠️ ElevenLabs voice failed (${msg}) — using OS/Chrome voice instead.`, 6000);
+
+  const statusEl = $("voiceEngineStatus");
+  if (statusEl && _voiceEngineMode === "elevenlabs") {
+    statusEl.innerHTML =
+      `<span style="color:var(--red,#E55757)">⚠️ ElevenLabs error: ${msg}</span><br>` +
+      `Falling back to OS/Chrome voices. If this persists, check your API key ` +
+      `at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" ` +
+      `rel="noopener" style="color:var(--gold)">elevenlabs.io</a> — a 401/` +
+      `"unauthorized" error means the key is invalid, expired, or was revoked.`;
+  }
+});
+
+// Maps Settings field IDs to VOICE_TARGETS category names (shared by load + save)
+const EL_CATEGORY_FIELDS = {
+  "warm-male":     "elVoiceWarmMale",
+  "deep-male":     "elVoiceDeepMale",
+  "uk-male":       "elVoiceUkMale",
+  "bright-female": "elVoiceBrightFemale",
+  "warm-female":   "elVoiceWarmFemale",
+  "uk-female":     "elVoiceUkFemale",
+};
+
+// ElevenLabs BYOK — save on blur (API key field, avoid per-keystroke writes)
+const elevenLabsKeyEl = $("elevenLabsKey");
+if (elevenLabsKeyEl) {
+  elevenLabsKeyEl.addEventListener("blur", () => {
+    const key = elevenLabsKeyEl.value.trim();
+    _savedElevenLabsKey = key;
+    chrome.storage.local.set({ elevenLabsKey: key }).catch(() => {});
+    // Re-apply current mode so an ElevenLabs key just pasted in takes effect
+    // immediately if ElevenLabs mode is already selected.
+    _setVoiceEngineMode(_voiceEngineMode);
+  });
+}
+
+// ElevenLabs voice IDs — explicit save button (six fields, batch-save)
+const elevenLabsSpoilerArrow = $("elevenLabsSpoilerArrow");
+const elevenLabsSpoilerEl    = $("elevenLabsSpoiler");
+if (elevenLabsSpoilerEl && elevenLabsSpoilerArrow) {
+  elevenLabsSpoilerEl.addEventListener("toggle", () => {
+    elevenLabsSpoilerArrow.style.transform = elevenLabsSpoilerEl.open ? "rotate(90deg)" : "";
+  });
+}
+
+// API Keys spoiler (Provider & Model section)
+const apiKeysSpoilerArrow = $("apiKeysSpoilerArrow");
+const apiKeysSpoilerEl    = $("apiKeysSpoiler");
+if (apiKeysSpoilerEl && apiKeysSpoilerArrow) {
+  apiKeysSpoilerEl.addEventListener("toggle", () => {
+    apiKeysSpoilerArrow.style.transform = apiKeysSpoilerEl.open ? "rotate(90deg)" : "";
+  });
+}
+
+// Provider & Model outer spoiler (API Keys spoiler above is nested inside it)
+const providerModelSpoilerArrow = $("providerModelSpoilerArrow");
+const providerModelSpoilerEl    = $("providerModelSpoiler");
+if (providerModelSpoilerEl && providerModelSpoilerArrow) {
+  // Starts open (see `open` attribute in HTML) — set initial arrow state to match.
+  providerModelSpoilerArrow.style.transform = providerModelSpoilerEl.open ? "rotate(90deg)" : "";
+  providerModelSpoilerEl.addEventListener("toggle", () => {
+    providerModelSpoilerArrow.style.transform = providerModelSpoilerEl.open ? "rotate(90deg)" : "";
+  });
+}
+
+// Voice Engine outer spoiler — collapsed by default, hides the
+// ElevenLabs/OS/Chrome mode selector and API key fields until expanded.
+const voiceEngineSpoilerArrow = $("voiceEngineSpoilerArrow");
+const voiceEngineSpoilerEl    = $("voiceEngineSpoiler");
+if (voiceEngineSpoilerEl && voiceEngineSpoilerArrow) {
+  voiceEngineSpoilerEl.addEventListener("toggle", () => {
+    voiceEngineSpoilerArrow.style.transform = voiceEngineSpoilerEl.open ? "rotate(90deg)" : "";
+  });
+}
+
+const saveElevenLabsBtn = $("saveElevenLabsBtn");
+if (saveElevenLabsBtn) {
+  saveElevenLabsBtn.addEventListener("click", async () => {
+    const voices = {};
+    for (const [category, fieldId] of Object.entries(EL_CATEGORY_FIELDS)) {
+      voices[category] = ($(fieldId)?.value || "").trim();
+    }
+    setElevenLabsVoiceIds(voices);
+    await chrome.storage.local.set({ elevenLabsVoices: voices });
+
+    const customized = Object.values(voices).filter(Boolean).length;
+    const msgEl = $("elevenLabsMsg");
+    if (msgEl) {
+      msgEl.textContent = customized
+        ? `✓ Saved — ${customized} of 6 categories customized, rest use defaults.`
+        : "✓ Saved — using default ElevenLabs voices for all categories.";
+      msgEl.style.color = "var(--gold)";
+    }
+    _updateVoiceEngineStatus();
+  });
+}
+
+/**
+ * Reflects whether ElevenLabs is active in the status line below the
+ * key field, and updates the Voice Engine status to mention it.
+ */
+function _updateElevenLabsKeyStatus(hasKey, mode = _voiceEngineMode) {
+  const el = $("elevenLabsKeyStatus");
+  if (!el) return;
+  if (!hasKey) {
+    el.innerHTML = `<span style="color:var(--fg3)">○</span> No key set — paste one above, then select ElevenLabs mode.`;
+  } else if (mode === "elevenlabs") {
+    el.innerHTML = `<span style="color:var(--gold)">●</span> ElevenLabs active — default voices assigned, customize per category below if you like.`;
+  } else {
+    el.innerHTML = `<span style="color:var(--fg3)">○</span> Key saved but not active — switch to ElevenLabs mode above to use it.`;
+  }
+}
+
+/**
+ * Show detected OS + voice counts in the Voice Engine status line.
+ * Helps users understand which voices are active.
+ */
+function _updateVoiceEngineStatus() {
+  const statusEl = $("voiceEngineStatus");
+  if (!statusEl) return;
+  chrome.tts.getVoices(voices => {
+    if (!voices || !voices.length) {
+      statusEl.textContent = "No voices detected yet — try reloading.";
+      return;
+    }
+    const local  = voices.filter(v => !v.remote);
+    const remote = voices.filter(v =>  v.remote);
+    // Detect OS
+    const names = voices.map(v => v.voiceName || "").join(" ");
+    const os = /microsoft/i.test(names) ? "Windows"
+             : /\b(Alex|Samantha|Daniel|Ava)\b/i.test(names) ? "macOS"
+             : "ChromeOS/Other";
+    const active = _voiceEngineMode === "elevenlabs" ? "ElevenLabs (your voices)"
+                 : _voiceEngineMode === "chrome"      ? "Chrome built-in voices"
+                 : `OS voices (${os})`;
+    statusEl.innerHTML =
+      `Detected: <strong style="color:var(--fg)">${os}</strong> — ` +
+      `${local.length} local voices, ${remote.length} remote<br>` +
+      `Active mode: <strong style="color:var(--gold)">${active}</strong>`;
+
+    // Compact label shown in the spoiler's summary line, visible even when
+    // collapsed, so the active voice source is clear without expanding.
+    const badge = $("voiceEngineSummaryBadge");
+    if (badge) {
+      const badgeLabel = _voiceEngineMode === "elevenlabs" ? "💎 ElevenLabs"
+                        : _voiceEngineMode === "chrome"     ? "🌐 Chrome"
+                        : "🖥️ OS";
+      badge.textContent = `— ${badgeLabel}`;
+    }
+  });
+}
 
 // WPM text speed slider — wired and persisted
 let _wpmValue = 200;
@@ -1215,32 +1778,6 @@ function toggleAgent(agentId, enabled) {
 }
 
 // ── Voice toggles ─────────────────────────────────────────────────────────────
-function buildVoiceToggles() {
-  return; // section removed — mutes are in Cast & Crew
-  voiceToggles.innerHTML = "";
-  FULL_CAST_UI.forEach(char => {
-    const muted = _mutedVoices.has(char.id);
-    const row   = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:3px 0";
-    row.innerHTML = `
-      <span style="font-size:10px;color:${muted ? "var(--fg3)" : char.color};display:flex;align-items:center;gap:6px">
-        ${char.name}
-      </span>
-      <label class="pill-toggle" style="transform:scale(0.85)">
-        <input type="checkbox" ${muted ? "" : "checked"} data-voice="${char.id}">
-        <span class="pill-track" style="--char-color:${char.color}"></span>
-      </label>`;
-    const cb = row.querySelector("input");
-    cb.addEventListener("change", () => {
-      if (cb.checked) { _mutedVoices.delete(char.id); tts.unmute(char.id); }
-      else            { _mutedVoices.add(char.id);    tts.mute(char.id);   }
-      row.querySelector("span").style.color = cb.checked ? char.color : "var(--fg3)";
-      chrome.storage.local.set({ mutedVoices: [..._mutedVoices] }).catch(()=>{});
-    });
-    voiceToggles.appendChild(row);
-  });
-}
-
 // ── Data management ───────────────────────────────────────────────────────────
 async function loadDataSummary() {
   const pins    = await db.getPins();
@@ -1286,49 +1823,80 @@ async function _refreshTranscript() {
   transcript = hist.map(m => `${m.agent}: ${m.content}`).join("\n");
 }
 
-// ── Delivery rewards — 1 delivery per unique launch, max 1 per 12 hours ─────
-// Each qualifying launch earns 1 delivery. Deliveries unlock reward icons.
+// ── Delivery rewards — max 1 per 12 hours, triggered by qualifying activity ──
+// "Qualifying activity": finishing an Autopilot episode, logging an
+// Expedition, generating an invention, or (as a passive fallback) opening
+// the Lab/Settings tab after 12h. First one of these to happen in a given
+// 12h window grants that day's delivery — see _recordDelivery().
 const DELIVERY_MILESTONES = [
-  { count:  1, icon: "🍕", label: "First Delivery!",         name: "Fry's Pizza Run" },
-  { count:  3, icon: "🤖", label: "3 Deliveries",            name: "Bender's Scheme Fund" },
-  { count:  5, icon: "👁️", label: "5 Deliveries",            name: "Leela's License" },
-  { count: 10, icon: "🧪", label: "10 Deliveries",           name: "Professor's Lab Grant" },
-  { count: 15, icon: "💅", label: "15 Deliveries",           name: "Amy's Allowance" },
-  { count: 20, icon: "🦞", label: "20 Deliveries",           name: "Zoidberg's Dumpster" },
-  { count: 30, icon: "⭐", label: "30 Deliveries",           name: "Zapp's Medal" },
-  { count: 50, icon: "📋", label: "50 Deliveries",           name: "Hermes's Grade 36" },
-  { count: 75, icon: "🎩", label: "75 Deliveries",           name: "Nixon's Head Jar" },
-  { count:100, icon: "🌀", label: "100 Deliveries — LEGEND", name: "Planet Express Owner" },
+  { count:  1, icon: "🍕", label: "First Delivery!",         name: "Fry's Pizza Run",      dmBonus:   10 },
+  { count:  3, icon: "🤖", label: "3 Deliveries",            name: "Bender's Scheme Fund", dmBonus:   20 },
+  { count:  5, icon: "👁️", label: "5 Deliveries",            name: "Leela's License",      dmBonus:   30 },
+  { count: 10, icon: "🧪", label: "10 Deliveries",           name: "Professor's Lab Grant",dmBonus:   50 },
+  { count: 15, icon: "💅", label: "15 Deliveries",           name: "Amy's Allowance",      dmBonus:   75 },
+  { count: 20, icon: "🦞", label: "20 Deliveries",           name: "Zoidberg's Dumpster",  dmBonus:  100 },
+  { count: 30, icon: "⭐", label: "30 Deliveries",           name: "Zapp's Medal",         dmBonus:  150 },
+  { count: 50, icon: "📋", label: "50 Deliveries",           name: "Hermes's Grade 36",    dmBonus:  250 },
+  { count: 75, icon: "🎩", label: "75 Deliveries",           name: "Nixon's Head Jar",     dmBonus:  400 },
+  { count:100, icon: "🌀", label: "100 Deliveries — LEGEND", name: "Planet Express Owner", dmBonus: 1000 },
 ];
 
-async function _checkDeliveryReward() {
+// Past 100 ("LEGEND"), every RANK_INTERVAL further deliveries bumps a Legend
+// Rank with a smaller recurring Dark Matter bonus, so the counter keeps
+// meaning something instead of dead-ending at 100.
+const RANK_INTERVAL = 25;
+const RANK_DM_BONUS = 50;
+const TWELVE_HOURS  = 12 * 60 * 60 * 1000;
+
+function _updateDeliveryBadge(count) {
+  const badge = $("dmDeliveryBadge");
+  if (badge) badge.textContent = `📦 ${count}`;
+}
+
+/**
+ * Records a delivery if 12+ hours have passed since the last one, awarding
+ * Dark Matter for milestones (and Legend Ranks past 100). Safe to call from
+ * multiple activity hooks — only the first call in a 12h window counts.
+ */
+async function _recordDelivery() {
   const now   = Date.now();
   const saved = await chrome.storage.local.get(["deliveryCount","lastDeliveryTime"]);
   const last  = saved.lastDeliveryTime || 0;
   const count = saved.deliveryCount    || 0;
-  const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
-  if (now - last >= TWELVE_HOURS) {
-    const newCount = count + 1;
-    await chrome.storage.local.set({ deliveryCount: newCount, lastDeliveryTime: now });
-    // Check for new milestone
-    const milestone = DELIVERY_MILESTONES.slice().reverse().find(m => newCount >= m.count);
-    if (milestone && newCount === milestone.count) {
-      setStatus(`🚀 New reward: ${milestone.icon} ${milestone.label}!`, 5000);
-    }
-    return newCount;
+  if (now - last < TWELVE_HOURS) {
+    _updateDeliveryBadge(count);
+    return count;
   }
-  return count;
+
+  const newCount = count + 1;
+  await chrome.storage.local.set({ deliveryCount: newCount, lastDeliveryTime: now });
+
+  const milestone = DELIVERY_MILESTONES.find(m => newCount === m.count);
+  if (milestone) {
+    setStatus(`🚀 New reward: ${milestone.icon} ${milestone.label} (+${milestone.dmBonus} ⚛️)!`, 5000);
+    window.earnDarkMatter?.(milestone.dmBonus, `Delivery reward: ${milestone.name}`).catch(()=>{});
+  } else if (newCount > 100 && (newCount - 100) % RANK_INTERVAL === 0) {
+    const rank = (newCount - 100) / RANK_INTERVAL;
+    setStatus(`🌀 Legend Rank ${rank}! (+${RANK_DM_BONUS} ⚛️)`, 5000);
+    window.earnDarkMatter?.(RANK_DM_BONUS, `Legend Rank ${rank}`).catch(()=>{});
+  }
+
+  _updateDeliveryBadge(newCount);
+  return newCount;
 }
+
+// Exposed so lab.js can record a delivery for invention/expedition activity.
+window.recordDelivery = _recordDelivery;
 
 async function buildLabRewardsPreview() {
   const container = $("crewProgressList");
   if (!container) return;
 
-  const count = await _checkDeliveryReward();
+  const count = await _recordDelivery();
   const saved = await chrome.storage.local.get(["lastDeliveryTime"]);
   const last  = saved.lastDeliveryTime || 0;
-  const nextIn = Math.max(0, 12 * 60 * 60 * 1000 - (Date.now() - last));
+  const nextIn = Math.max(0, TWELVE_HOURS - (Date.now() - last));
   const hoursLeft = (nextIn / 3600000).toFixed(1);
 
   const earned = DELIVERY_MILESTONES.filter(m => count >= m.count);
@@ -1341,7 +1909,17 @@ async function buildLabRewardsPreview() {
 
   if (next) {
     const pct = Math.min(100, Math.round(count / next.count * 100));
-    html += `<div style="font-size:9px;color:var(--fg3);margin-bottom:4px">Next: ${next.icon} ${next.label}</div>
+    html += `<div style="font-size:9px;color:var(--fg3);margin-bottom:4px">Next: ${next.icon} ${next.label} (+${next.dmBonus} ⚛️)</div>
+    <div style="height:4px;background:var(--bg3);border-radius:2px;margin-bottom:8px">
+      <div style="height:100%;width:${pct}%;background:var(--gold);border-radius:2px;transition:width .5s"></div>
+    </div>`;
+  } else if (count >= 100) {
+    // Past LEGEND — show progress toward the next Legend Rank instead of
+    // dead-ending. rank = ranks already achieved (0 until count reaches 125).
+    const rank     = Math.floor((count - 100) / RANK_INTERVAL);
+    const intoRank = (count - 100) % RANK_INTERVAL;
+    const pct      = Math.round(intoRank / RANK_INTERVAL * 100);
+    html += `<div style="font-size:9px;color:var(--fg3);margin-bottom:4px">🌀 ${rank > 0 ? `Legend Rank ${rank} — ` : ""}Next rank in ${RANK_INTERVAL - intoRank} (+${RANK_DM_BONUS} ⚛️)</div>
     <div style="height:4px;background:var(--bg3);border-radius:2px;margin-bottom:8px">
       <div style="height:100%;width:${pct}%;background:var(--gold);border-radius:2px;transition:width .5s"></div>
     </div>`;
@@ -1350,7 +1928,7 @@ async function buildLabRewardsPreview() {
   if (earned.length) {
     html += `<div style="display:flex;flex-wrap:wrap;gap:6px">`;
     for (const m of earned) {
-      html += `<div title="${m.name}" style="font-size:18px;cursor:default" aria-label="${m.label}">${m.icon}</div>`;
+      html += `<div title="${m.name} (+${m.dmBonus} ⚛️)" style="font-size:18px;cursor:default" aria-label="${m.label}">${m.icon}</div>`;
     }
     html += `</div>`;
   } else {
@@ -1392,313 +1970,14 @@ const WIDGET_AFFIRMATIONS = [
   { char:"MORBO",    color:"#7DF9FF", quote:"MORBO CONGRATULATES YOU. Your progress fills him with conflicted rage and mild respect." },
 ];
 
-let _widgetIdx    = 0;
-let _widgetPaused = false;
-let _widgetTimer  = null;
-
-function _initWidget() {
-  _widgetIdx = Math.floor(Math.random() * WIDGET_AFFIRMATIONS.length);
-  _widgetDisplay(WIDGET_AFFIRMATIONS[_widgetIdx]);
-
-  const nextBtn  = $("widgetNextBtn");
-  const pauseBtn = $("widgetPauseBtn");
-  const avatar   = $("widgetAvatar");
-  if (nextBtn)  nextBtn.addEventListener("click", _widgetNext);
-  if (pauseBtn) pauseBtn.addEventListener("click", _widgetTogglePause);
-  if (avatar)   avatar.addEventListener("click",   _widgetNext);
-
-  _widgetTimer = setInterval(() => {
-    if (!_widgetPaused && $("panel-lab")?.classList.contains("active")) _widgetNext();
-  }, 30000);
-}
-
-function _widgetDisplay(q) {
-  const quoteEl   = $("widgetQuote");
-  const charName  = $("widgetCharName");
-  const charSub   = $("widgetCharSub");
-  const statusDot = $("widgetStatusDot");
-  const statusTxt = $("widgetStatusText");
-  const idxEl     = $("widgetQuoteId");
-  if (quoteEl)   quoteEl.textContent = q.quote;
-  if (charName)  charName.textContent = q.char;
-  if (charSub)   charSub.textContent  = "Words of questionable wisdom";
-  if (statusDot) statusDot.style.background = q.color;
-  if (statusTxt) statusTxt.textContent = _widgetPaused ? "PAUSED" : "CYCLING";
-  if (idxEl)     idxEl.textContent = `#${String(_widgetIdx + 1).padStart(3, "0")}`;
-}
-
-function _widgetNext() {
-  _widgetIdx = (_widgetIdx + 1) % WIDGET_AFFIRMATIONS.length;
-  _widgetDisplay(WIDGET_AFFIRMATIONS[_widgetIdx]);
-  if (_widgetPaused) { _widgetPaused = false; _widgetDisplay(WIDGET_AFFIRMATIONS[_widgetIdx]); }
-}
-
-function _widgetTogglePause() {
-  _widgetPaused = !_widgetPaused;
-  const pauseBtn = $("widgetPauseBtn");
-  if (pauseBtn) pauseBtn.textContent = _widgetPaused ? "▶ RESUME" : "⏸ PAUSE";
-  _widgetDisplay(WIDGET_AFFIRMATIONS[_widgetIdx]);
-}
-
-
-
-// ── Episode & Chat Summary Engine ────────────────────────────────────────────
-// Token-efficient summaries (<500 tokens each). Rate-limited to 1 per 3 minutes.
-// Shared cooldown between EP summary and Chat summary.
-
-const SUMMARY_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
-let _lastSummaryTime = 0;
-
-// Token budget: 300 in / 300 out. Input is capped at 300 chars per turn, 12 turns max.
-const SUMMARY_MAX_TOKENS   = 300;
-// Input budget: reserve ~150 tokens for the system prompt + user label,
-// leaving ~850 tokens for dialogue (≈3400 chars at ~4 chars/token).
-// We trim oldest turns — never mid-turn — until we fit.
-const SUMMARY_INPUT_TOKEN_BUDGET = 850;
-const SUMMARY_CHARS_PER_TOKEN    = 4;   // conservative estimate
-
-const EP_SUMMARY_SYS = `You are writing a Planet Express mission debrief. Write a punchy 3-sentence summary covering: the topic debated, which characters drove it, and one memorable moment. Tone: warm, irreverent, like a DVD commentary. Max 80 words.`;
-
-const CHAT_SUMMARY_SYS = `You are writing a Planet Express chat summary. Write 2 sentences covering what was discussed and which character was most useful or most chaotic. Max 50 words. Casual tone.`;
-
-const SUMMARY_DISCLAIMER = "\n\n───\nFuturama and related characters © The Walt Disney Company / 20th Television Animation. Non-commercial AI parody — fair use (17 U.S.C. § 107). Planet Express Lounge — #DHSeaDev";
-
-/**
- * Generates a summary via LLM and saves it directly to Cold Storage.
- * Does NOT print into chat or autopilot panels.
- * Token budget: 300 in / 300 out.
- */
-async function _generateSummary(panelEl, sysPrompt, summaryLabel, btnEl, btnRestoreLabel) {
-  if (!crew || !llmClient) {
-    setStatus("⚠️ No API key — connect in Settings first.");
-    return;
-  }
-  const now = Date.now();
-  if (now - _lastSummaryTime < SUMMARY_COOLDOWN_MS) {
-    const secLeft = Math.ceil((SUMMARY_COOLDOWN_MS - (now - _lastSummaryTime)) / 1000);
-    setStatus(`⏳ Summary cooldown — ${secLeft}s remaining.`, 3000);
-    return;
-  }
-
-  // Collect full turns — no mid-turn truncation
-  const turns = [];
-  panelEl.querySelectorAll(".ap-topic-banner,.ep-title-banner,.scheme-bubble").forEach(el => {
-    turns.push(el.textContent.trim());
-  });
-  panelEl.querySelectorAll(".turn").forEach(t => {
-    const hdr  = t.querySelector(".turn-header")?.textContent?.trim() || "";
-    const body = t.querySelector(".turn-body")?.textContent?.trim()   || "";
-    if (body) turns.push(`${hdr}: ${body}`);
-  });
-
-  // Trim oldest turns (not content) until total chars fit within token budget
-  const charBudget = SUMMARY_INPUT_TOKEN_BUDGET * SUMMARY_CHARS_PER_TOKEN;
-  while (turns.length > 1 && turns.join("\n\n").length > charBudget) {
-    turns.shift();
-  }
-
-  const snippet = turns.join("\n\n");
-  if (!snippet.trim()) {
-    setStatus("Nothing to summarise yet.");
-    return;
-  }
-
-  if (btnEl) { btnEl.textContent = "⏳"; btnEl.disabled = true; }
-  setStatus("Generating summary…");
-
-  try {
-    let summaryText = "";
-    await crew.llm.stream(
-      sysPrompt,
-      `Crew dialogue:\n\n${snippet}`,
-      SUMMARY_MAX_TOKENS,
-      chunk => { summaryText += chunk; },
-      null
-    );
-
-    if (summaryText.trim()) {
-      _lastSummaryTime = Date.now();
-      const date  = new Date().toLocaleString();
-      const label = `${summaryLabel} — ${date}`;
-      const body  = `${summaryLabel.toUpperCase()}\n${date}\n\n${summaryText.trim()}${SUMMARY_DISCLAIMER}`;
-      await db.savePin("SUMMARY", body.slice(0, 2000), label);
-      setStatus("📋 Summary saved to Cold Storage.", 3000);
-      // Refresh cold storage list if it's visible
-      if (typeof loadPins === "function") loadPins();
-    }
-  } catch (e) {
-    setStatus(`Summary error: ${e.message}`, 3000);
-  } finally {
-    if (btnEl) {
-      btnEl.textContent = btnRestoreLabel || "📋";
-      btnEl.disabled = false;
-    }
-  }
-}
-
-// ── Episode summary button
-const apEpSummaryBtn = $("apEpSummaryBtn");
-if (apEpSummaryBtn) {
-  apEpSummaryBtn.addEventListener("click", () => {
-    _generateSummary(apStream, EP_SUMMARY_SYS, "Episode Summary", apEpSummaryBtn, "📋 EP");
-  });
-}
-
-// ── Chat summary button
-const chatSummaryBtnEl = $("chatSummaryBtn");
-if (chatSummaryBtnEl) {
-  chatSummaryBtnEl.addEventListener("click", () => {
-    _generateSummary(chatlog, CHAT_SUMMARY_SYS, "Chat Summary", chatSummaryBtnEl, "📋");
-  });
-}
-
-// ── CREW_SHOWCASE data (v3 delivery card) ────────────────────────────────────
-const CREW_SHOWCASE = {
-  FRY:   { name:"Philip J. Fry",             color:"#FF6B35", icon:"🍕",
-    quote:"I'm not just some delivery boy. I'm a man frozen in time, thawed out a thousand years later, and still doing the same job. That's not failure — that's commitment.",
-    accessories:[{id:"pizza",label:"Leftover Pizza",icon:"🍕",unlockAt:1,desc:"Constant across 1000 years."},{id:"slurm",label:"Slurm Can",icon:"🧃",unlockAt:25,desc:"Highly addictive!"},{id:"holophonor",label:"Holophonor",icon:"🎵",unlockAt:50,desc:"Soul of a musician."},{id:"seymour",label:"Seymour's Collar",icon:"🐶",unlockAt:100,desc:"He waited. Every day."}]},
-  LEELA: { name:"Turanga Leela",             color:"#C678DD", icon:"👁️",
-    quote:"I spent my whole life thinking I was alone. One eye. No family. Turns out my parents were watching from the sewers the whole time. Still processing that.",
-    accessories:[{id:"wristband",label:"Wrist Thingy",icon:"⌚",unlockAt:1,desc:"Multi-function. Mostly ignored."},{id:"boot",label:"Steel-Toed Boot",icon:"👢",unlockAt:25,desc:"Applied to Fry ~400 times."},{id:"eye",label:"Eye Patch",icon:"👁️",unlockAt:50,desc:"Not that you needed reminding."},{id:"nibbler",label:"Nibbler's Basket",icon:"🧺",unlockAt:100,desc:"He was here the whole time."}]},
-  BENDER:{ name:"Bender Bending Rodríguez",  color:"#ABB2BF", icon:"🤖",
-    quote:"I've been a cook, a folk singer, a crime boss, a were-car, and a god. I have been worshipped. And yet they still make me do the dishes.",
-    accessories:[{id:"antenna",label:"Antenna",icon:"📡",unlockAt:1,desc:"Reception poor. Personality worse."},{id:"cigar",label:"Cigar",icon:"🚬",unlockAt:25,desc:"For any and all occasions."},{id:"crown",label:"Mastermind Crown",icon:"👑",unlockAt:50,desc:"Self-appointed."},{id:"chest",label:"Chest Hatch",icon:"🗝️",unlockAt:100,desc:"Contents: unknowable. Stolen."}]},
-  PROF:  { name:"Professor Hubert J. Farnsworth", color:"#E5C07B", icon:"🧪",
-    quote:"Good news, everyone. I've invented something that will almost certainly not kill you in a way science cannot yet explain.",
-    accessories:[{id:"flask",label:"Mystery Flask",icon:"⚗️",unlockAt:1,desc:"DO NOT SMELL."},{id:"doomsday",label:"Doomsday Device",icon:"💣",unlockAt:25,desc:"Which button? Doesn't matter."},{id:"deathclock",label:"Death Clock",icon:"⏰",unlockAt:50,desc:"Showing 'now'."},{id:"wernstrom",label:"Wernstrom Dart",icon:"🎯",unlockAt:100,desc:"Wernstrooooom!"}]},
-  AMY:   { name:"Amy Wong",                  color:"#FF79C6", icon:"💅",
-    quote:"People think I'm just a rich girl with bad coordination. I have a PhD. I also piloted the Planet Express ship into a black hole and out the other side. Nobody said thank you.",
-    accessories:[{id:"scrunchie",label:"Pink Scrunchie",icon:"🩷",unlockAt:1,desc:"Kif thinks it looks great."},{id:"phone",label:"Holographic Phone",icon:"📱",unlockAt:25,desc:"Kif is caller #1."},{id:"martian",label:"Mars U Pennant",icon:"🏫",unlockAt:50,desc:"She earned the degree."},{id:"diploma",label:"Medical Degree",icon:"📜",unlockAt:100,desc:"Yes, a real one."}]},
-  ZOIDBERG:{name:"Dr. John A. Zoidberg",     color:"#56B6C2", icon:"🦞",
-    quote:"They say I'm a bad doctor. They say I eat from dumpsters. They say my advice once caused a man to grow a spleen in his elbow. But I have friends now and that is everything.",
-    accessories:[{id:"stethoscope",label:"Stethoscope",icon:"🩺",unlockAt:1,desc:"Primarily worn as necklace."},{id:"sandwich",label:"Discarded Sandwich",icon:"🥪",unlockAt:25,desc:"Found. Mostly."},{id:"diploma_z",label:"Zoidberg's Degree",icon:"🎓",unlockAt:50,desc:"Accreditation under review."},{id:"hooray",label:"Hooray Banner",icon:"🎉",unlockAt:100,desc:"Zoidberg has a friend!"}]},
-};
-const SHOWCASE_ORDER = ["FRY","LEELA","BENDER","PROF","AMY","ZOIDBERG"];
-
-async function buildWelcomeCard() {
-  const stored    = await chrome.storage.local.get(["deliveryCount"]);
-  const openCount = stored.deliveryCount || 0;
-  const charKey   = SHOWCASE_ORDER[(openCount - 1) % SHOWCASE_ORDER.length] || "FRY";
-  const showcase  = CREW_SHOWCASE[charKey] || CREW_SHOWCASE.FRY;
-  if (!chatlog) return;
-
-  chatlog.querySelector(".welcome-card")?.remove();
-
-  const card = document.createElement("div");
-  card.className = "welcome-card";
-  card.style.setProperty("--char-color", showcase.color);
-
-  const dismiss = document.createElement("button");
-  dismiss.className   = "welcome-dismiss";
-  dismiss.textContent = "✕";
-  dismiss.title       = "Dismiss";
-  dismiss.addEventListener("click", () => card.remove());
-  card.appendChild(dismiss);
-
-  const header = document.createElement("div");
-  header.className = "welcome-header";
-  header.innerHTML = `
-    <span class="welcome-icon">${showcase.icon}</span>
-    <div class="welcome-name-block">
-      <div class="welcome-char-name">${showcase.name}</div>
-      <div class="welcome-counter">
-        <span class="welcome-counter-num">#${openCount}</span>
-        <span class="welcome-counter-label"> DELIVERIES LOGGED</span>
-      </div>
-    </div>`;
-  card.appendChild(header);
-
-  const quoteEl = document.createElement("div");
-  quoteEl.className   = "welcome-quote";
-  quoteEl.textContent = `"${showcase.quote}"`;
-  card.appendChild(quoteEl);
-
-  const accSection = document.createElement("div");
-  accSection.className = "welcome-acc-section";
-
-  const accTitleRow = document.createElement("div");
-  accTitleRow.className = "welcome-acc-title-row";
-  const accTitle = document.createElement("div");
-  accTitle.className   = "welcome-acc-title";
-  accTitle.textContent = "CARGO HOLD";
-  accTitleRow.appendChild(accTitle);
-
-  const nextLocked = showcase.accessories.find(a => openCount < a.unlockAt);
-  const mechNote   = document.createElement("div");
-  mechNote.className = "welcome-acc-note";
-  mechNote.textContent = nextLocked
-    ? `${nextLocked.unlockAt - openCount} more to unlock ${nextLocked.label}.`
-    : "All cargo unlocked. The hold is full.";
-  accTitleRow.appendChild(mechNote);
-  accSection.appendChild(accTitleRow);
-
-  const accRow = document.createElement("div");
-  accRow.className = "welcome-acc-row";
-  for (const acc of showcase.accessories) {
-    const unlocked = openCount >= acc.unlockAt;
-    const item     = document.createElement("div");
-    item.className = `welcome-acc-item ${unlocked ? "unlocked" : "locked"}`;
-    item.title     = unlocked ? acc.desc : `Unlocks after ${acc.unlockAt} deliveries`;
-    if (unlocked && openCount === acc.unlockAt) item.classList.add("just-unlocked");
-    const iconEl  = document.createElement("div");
-    iconEl.className   = "welcome-acc-icon";
-    iconEl.textContent = unlocked ? acc.icon : "🔒";
-    const labelEl  = document.createElement("div");
-    labelEl.className  = "welcome-acc-label";
-    labelEl.textContent = unlocked
-      ? (openCount === acc.unlockAt ? "✨ " + acc.label : acc.label)
-      : acc.unlockAt + " deliveries";
-    item.appendChild(iconEl);
-    item.appendChild(labelEl);
-    accRow.appendChild(item);
-  }
-  accSection.appendChild(accRow);
-  card.appendChild(accSection);
-  chatlog.prepend(card);
-}
-
-function _startLabWidgets() {
-  if (_labWidgetsStarted) return;
-  _labWidgetsStarted = true;
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    try { typeof _initTracker     === "function" && _initTracker();     } catch(e) { console.error("Tracker:", e); }
-    try { typeof _initBenderGod   === "function" && _initBenderGod();   } catch(e) { console.error("BenderGod:", e); }
-    try { typeof _initMorboLinda  === "function" && _initMorboLinda();  } catch(e) { console.error("MorboLinda:", e); }
-    try { typeof _initNeutralNews === "function" && _initNeutralNews(); } catch(e) { console.error("NeutralNews:", e); }
-    _wireWidgetButtons();
-  }));
-}
-
-// ── Wire all widget buttons via addEventListener (CSP blocks onclick=) ────────
-// Called once after all _init functions have run and exposed their window.w*_ globals.
-function _wireWidgetButtons() {
-  const wire = (id, fn) => {
-    const el = document.getElementById(id);
-    if (el && typeof fn === "function") {
-      el.removeEventListener("click", fn);
-      el.addEventListener("click", fn);
-    }
-  };
-  // Tracker
-  wire("wt-new-delivery-btn",() => typeof window.wt_newDelivery === "function" && window.wt_newDelivery());
-  // Bender / God
-  wire("wbg-prev-btn",  () => typeof window.wbg_bgNav      === "function" && window.wbg_bgNav(-1));
-  wire("wbg-bg-play",   () => typeof window.wbg_bgToggleAuto === "function" && window.wbg_bgToggleAuto());
-  wire("wbg-next-btn",  () => typeof window.wbg_bgNav      === "function" && window.wbg_bgNav(1));
-  // Morbo / Linda
-  wire("wml-prev-btn",  () => typeof window.wml_mbNav      === "function" && window.wml_mbNav(-1));
-  wire("wml-mb-play",   () => typeof window.wml_mbToggleAuto === "function" && window.wml_mbToggleAuto());
-  wire("wml-next-btn",  () => typeof window.wml_mbNav      === "function" && window.wml_mbNav(1));
-  // Neutral news
-  wire("wnn-next-btn",  () => typeof window.wnn_nextStory  === "function" && window.wnn_nextStory());
-  wire("wnn-auto-btn",  () => typeof window.wnn_toggleAuto === "function" && window.wnn_toggleAuto());
-}
+// ── Lab widget orchestration (delegated to lab.js) ──────────────────────────
+// Functions below are forwarded to window.LabModule populated by lab.js
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   await db.ready();
   await loadSettings();
-  _initWidget();
+  window.LabModule?.initWidget();
   await _checkPending();
   await _newSession();
 
@@ -1713,10 +1992,13 @@ async function init() {
     _hideFirstRunCard();
   }
 
-  // Build the delivery welcome card
-  if (llmClient || !firstRunData.firstRunComplete) {
-    buildWelcomeCard().catch(() => {});
-  }
+  // Expose CHARS to window for the invention critique renderer
+  window.CHARS = CHARS;
+
+  // Initial lab state (delegated to lab.js)
+  window.LabModule?.renderPatentOffice();
+  window.LabModule?.refreshInventBtn();
+  _updateDeliveryBadge((await chrome.storage.local.get("deliveryCount")).deliveryCount || 0);
 
   setStatus(llmClient ? "Welcome back! Enter a topic, or hit Autopilot." : "Welcome aboard! Go to ⚙️ Settings to connect.");
   // Apply chaos visual state now that _applyChaosState is defined
@@ -1724,718 +2006,3 @@ async function init() {
 }
 
 init().catch(e => console.error("PE init error:", e));
-
-
-// ── Lab widget init functions (extracted from v3) ────────────────────────────
-
-function _initTracker() {
-const DELIVERIES=[
-  {pkg:"Doomsday device (inert)",from:"New New York",to:"Omicron Persei 8",danger:"LEVEL 5",crew:["Leela","Fry","Bender"]},
-  {pkg:"Jar of Neptunian slug slime",from:"New New York",to:"Neptune",danger:"LEVEL 1",crew:["Fry","Bender"]},
-  {pkg:"Dark matter energy cores",from:"Vergon 6",to:"New New York",danger:"LEVEL 3",crew:["Leela","Fry","Bender","Zoidberg"]},
-  {pkg:"Love potion #8.5",from:"New New York",to:"Amazonia",danger:"LEVEL 2",crew:["Leela","Fry"]},
-  {pkg:"Highly unstable anti-matter",from:"New New York",to:"Traal",danger:"LEVEL 9",crew:["Leela","Fry","Bender"]},
-  {pkg:"Box of nothing",from:"Eternium",to:"New New York",danger:"LEVEL 0",crew:["Fry","Amy","Zoidberg"]},
-  {pkg:"Soylent Cola (bulk)",from:"New New York",to:"Wormulon",danger:"LEVEL 2",crew:["Leela","Bender","Hermes"]},
-  {pkg:"One (1) anchovy",from:"New New York",to:"Prehistoric Earth",danger:"LEVEL 4",crew:["Fry","Bender"]},
-  {pkg:"Counterfeit jeans",from:"New New York",to:"Nude Beach Planet",danger:"LEVEL 1",crew:["Leela","Fry","Bender","Amy"]},
-  {pkg:"The Smelloscope",from:"New New York",to:"Thuban 9",danger:"LEVEL 0",crew:["Leela","Fry","Professor"]},
-];
-
-const WAYPOINTS=[
-  {name:"Moon",color:"#888"},
-  {name:"Mars",color:"#c0602a"},
-  {name:"Asteroid Belt",color:"#8a7a50"},
-  {name:"Jupiter",color:"#c09060"},
-  {name:"Wormhole Alpha",color:"#9a50d0"},
-  {name:"Nibblonian Space",color:"#50a060"},
-  {name:"DOOP Station",color:"#4080c0"},
-];
-
-const STATUSES=[
-  "Fry spilled coffee on the nav console. Rerouting.",
-  "Bender took a detour to a poker tournament.",
-  "Leela executed a textbook slingshot maneuver.",
-  "Zoidberg is in the engine room. Pray.",
-  "Cruising through dark matter clouds.",
-  "Kif's sigh detected — minor course correction.",
-  "Flying at 99.9% the speed of plot.",
-  "Bender briefly stole the cargo. It's back.",
-  "Passing through a time anomaly. Probably fine.",
-  "Leela parallel-parked through a nebula.",
-  "Fry accidentally hit ludicrous speed.",
-  "Zapp Brannigan's ship spotted. Evading.",
-  "All systems nominal. Fry suspicious.",
-];
-
-const LEELA_QUOTES=[
-  "Stay on course and try not to break anything, Fry.",
-  "I've piloted through worse. Much, much worse.",
-  "Bender, put the cargo back. NOW.",
-  "According to my wrist-ilo, we're only slightly doomed.",
-  "I didn't get my captain's license for nothing.",
-  "If we survive this, I'm billing the Professor double.",
-  "The wormhole is perfectly safe. Probably.",
-  "Fry, stop touching that. No — the other thing.",
-];
-
-const FRY_QUOTES=[
-  "Not sure if we're on time or just lucky. Both?",
-  "Wait, space is really, really big. Whoa.",
-  "I'm the delivery boy. I deliver. That's my whole deal.",
-  "Bender says we'll be fine. Bender also said that last time.",
-  "Is that a space whale or did I eat something weird?",
-];
-
-const BENDER_QUOTES=[
-  "We'll get there when we get there, meatbags.",
-  "I'm 40% delivery, 60% magnificent.",
-  "I briefly considered stealing the package. Still considering it.",
-  "Bite my shiny metal trajectory.",
-];
-
-const PROF_QUOTES=[
-  "Good news, everyone! You're delivering something that might explode!",
-  "The chances of survival are... actually, I haven't calculated them.",
-  "I'm already asleep. Leave a message.",
-  "This mission is entirely safe. I said 'entirely.' I lied.",
-];
-
-let delivery=null, progress=0, waypoints=[], currentWaypoint=0;
-let shipX=0,shipY=0,originX=0,originY=0,destX=0,destY=0;
-let statusTimer=null,progressTimer=null,quoteTimer=null;
-let startTime=Date.now(),etaSeconds=0;
-
-function rand(a,b){return a+Math.random()*(b-a);}
-function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
-
-function drawStars(){
-  const c=document.getElementById('wt-stars-layer');
-  const ctx=c.getContext('2d');
-  ctx.clearRect(0,0,340,180);
-  for(let i=0;i<180;i++){
-    const x=rand(0,340),y=rand(0,180),r=rand(.2,1.4);
-    const bright=Math.random();
-    ctx.beginPath();
-    ctx.arc(x,y,r,0,Math.PI*2);
-    ctx.fillStyle=bright>.92?'#c8b8ff':bright>.85?'#fffce0':'#ffffff';
-    ctx.globalAlpha=rand(.2,.9);
-    ctx.fill();
-  }
-  ctx.globalAlpha=1;
-  for(let i=0;i<3;i++){
-    const x=rand(20,320),y=rand(10,170);
-    ctx.beginPath();
-    ctx.arc(x,y,rand(12,28),0,Math.PI*2);
-    ctx.fillStyle=`rgba(${pick([40,60,30])},${pick([20,40,60])},${pick([60,80,100])},0.06)`;
-    ctx.fill();
-  }
-}
-
-function placePlanets(){
-  document.querySelectorAll('.planet-dot,.p-label').forEach(e=>e.remove());
-  const map=document.getElementById('wt-starmap');
-  const used=[];
-  const count=3+Math.floor(Math.random()*3);
-  for(let i=0;i<count;i++){
-    let attempts=0,x,y,ok=false;
-    while(!ok&&attempts<20){
-      x=rand(20,310);y=rand(14,155);
-      ok=used.every(p=>Math.hypot(p.x-x,p.y-y)>35)
-        &&Math.hypot(originX-x,originY-y)>30
-        &&Math.hypot(destX-x,destY-y)>30;
-      attempts++;
-    }
-    used.push({x,y});
-    const wp=WAYPOINTS[i%WAYPOINTS.length];
-    const size=rand(5,13);
-    const d=document.createElement('div');
-    d.className='planet-dot';
-    d.style.cssText=`left:${x}px;top:${y}px;width:${size}px;height:${size}px;background:${wp.color};opacity:.7`;
-    map.appendChild(d);
-    if(size>7){
-      const l=document.createElement('div');
-      l.className='p-label';
-      l.style.cssText=`left:${x}px;top:${y+size/2+3}px`;
-      l.textContent=wp.name;
-      map.appendChild(l);
-    }
-  }
-}
-
-function setRoute(){
-  const margin=24;
-  originX=rand(margin,90); originY=rand(margin,180-margin);
-  destX=rand(250,340-margin); destY=rand(margin,180-margin);
-
-  document.getElementById('wt-origin-dot').style.cssText=`left:${originX}px;top:${originY}px`;
-  document.getElementById('wt-dest-dot').style.cssText=`left:${destX}px;top:${destY}px`;
-
-  const cx=(originX+destX)/2+rand(-40,40);
-  const cy=(originY+destY)/2+rand(-50,50);
-
-  document.getElementById('wt-route-path').setAttribute('d',
-    `M${originX},${originY} Q${cx},${cy} ${destX},${destY}`);
-  document.getElementById('wt-route-done').setAttribute('d','');
-
-  shipX=originX; shipY=originY;
-  const s=document.getElementById('wt-ship-el');
-  s.style.left=shipX+'px'; s.style.top=shipY+'px';
-}
-
-function getPointOnCurve(t){
-  const path=document.getElementById('wt-route-path');
-  const len=path.getTotalLength();
-  const pt=path.getPointAtLength(t*len);
-  return{x:pt.x,y:pt.y};
-}
-
-function buildSteps(){
-  const d=delivery;
-  const mid1=pick(WAYPOINTS);
-  let mid2;do{mid2=pick(WAYPOINTS);}while(mid2===mid1);
-  waypoints=[
-    {name:d.from,detail:'Departure — package loaded',done:true,active:false},
-    {name:mid1.name,detail:'Waypoint — refueling stop',done:false,active:true},
-    {name:mid2.name,detail:'Waypoint — customs inspection',done:false,active:false},
-    {name:d.to,detail:'Final destination',done:false,active:false},
-  ];
-  renderSteps();
-}
-
-function renderSteps(){
-  const wrap=document.getElementById('wt-route-steps');
-  wrap.innerHTML='';
-  waypoints.forEach((w,i)=>{
-    const div=document.createElement('div');
-    div.className='step';
-    const state=w.done?'done':w.active?'active':'todo';
-    let html=`<div style="display:flex;flex-direction:column;align-items:center">
-      <div class="step-dot ${state}"></div>`;
-    if(i<waypoints.length-1) html+=`<div class="step-line"></div>`;
-    html+=`</div><div class="step-info">
-      <div class="step-name">${w.name}</div>
-      <div class="step-detail">${w.detail}</div>
-    </div>`;
-    div.innerHTML=html;
-    wrap.appendChild(div);
-  });
-}
-
-function updateWaypoints(pct){
-  const thresholds=[0,30,65,100];
-  waypoints.forEach((w,i)=>{
-    w.done=pct>=thresholds[i];
-    w.active=pct>=thresholds[i]&&(i===waypoints.length-1?pct<100:pct<thresholds[i+1]);
-  });
-  renderSteps();
-}
-
-function formatEta(sec){
-  if(sec<=0) return 'NOW';
-  if(sec<60) return sec+'s';
-  const m=Math.floor(sec/60),s=sec%60;
-  return m+'m'+(s>0?s+'s':'');
-}
-
-function newDelivery(){
-  clearInterval(progressTimer);
-  clearTimeout(quoteTimer);
-  clearTimeout(statusTimer);
-
-  delivery=pick(DELIVERIES);
-  progress=0;
-  currentWaypoint=0;
-  const totalSec=90+Math.floor(Math.random()*120);
-  etaSeconds=totalSec;
-  startTime=Date.now();
-
-  document.getElementById('wt-pkg-id').textContent='PKG-'+Math.floor(100000+Math.random()*900000);
-  document.getElementById('wt-pkg-title').textContent=delivery.pkg;
-  document.getElementById('wt-crew-names').textContent=delivery.crew.join(', ');
-  document.getElementById('wt-eta-val').textContent=formatEta(etaSeconds);
-  document.getElementById('wt-progress-fill').style.width='0%';
-  document.getElementById('wt-progress-pct').textContent='0%';
-
-  drawStars();
-  setRoute();
-  placePlanets();
-  buildSteps();
-  cycleQuote();
-
-  const tickMs=1000;
-  const totalTicks=totalSec;
-  let tick=0;
-
-  progressTimer=setInterval(()=>{
-    tick++;
-    progress=Math.min(100,Math.round((tick/totalTicks)*100));
-    etaSeconds=Math.max(0,totalSec-tick);
-
-    document.getElementById('wt-progress-fill').style.width=progress+'%';
-    document.getElementById('wt-progress-pct').textContent=progress+'%';
-    document.getElementById('wt-eta-val').textContent=formatEta(etaSeconds);
-
-    const pt=getPointOnCurve(progress/100);
-    const s=document.getElementById('wt-ship-el');
-    s.style.left=pt.x+'px';
-    s.style.top=pt.y+'px';
-
-    const donePath=document.getElementById('wt-route-done');
-    const routePath=document.getElementById('wt-route-path');
-    const len=routePath.getTotalLength();
-    const seg=routePath.getPointAtLength((progress/100)*len);
-    donePath.setAttribute('d',
-      document.getElementById('wt-route-path').getAttribute('d').replace(/Q.*/,'')+
-      `...`);
-    const doneLen=(progress/100)*len;
-    document.getElementById('wt-route-path').style.strokeDashoffset=0;
-    donePath.setAttribute('stroke-dasharray',doneLen+' '+len);
-    donePath.setAttribute('stroke-dashoffset',0);
-    donePath.setAttribute('d',document.getElementById('wt-route-path').getAttribute('d'));
-    donePath.style.strokeDasharray=doneLen+','+len;
-
-    updateWaypoints(progress);
-
-    if(progress>=100){
-      clearInterval(progressTimer);
-      document.getElementById('wt-status-dot').style.background='#f0b429';
-      setStatus('Package delivered! ...mostly intact. Restarting in 8s.');
-      setCaptain('👩‍✈️',"Delivery complete. I'm not even going to ask what Bender did.");
-      setTimeout(newDelivery,8000);
-    }
-  },tickMs);
-
-  statusTimer=setInterval(()=>{
-    if(progress<100) setStatus(pick(STATUSES));
-  },6000+Math.floor(Math.random()*4000));
-
-  setStatus('Departing '+delivery.from+'. Danger level: '+delivery.danger);
-}
-
-function setStatus(txt){
-  document.getElementById('wt-status-text').textContent=txt;
-}
-
-function setCaptain(face,quote){
-  document.getElementById('wt-captain-face').textContent=face;
-  document.getElementById('wt-captain-quote').textContent=quote;
-}
-
-function cycleQuote(){
-  const roll=Math.random();
-  if(roll<.5) setCaptain('👩‍✈️',pick(LEELA_QUOTES));
-  else if(roll<.7) setCaptain('😐',pick(FRY_QUOTES));
-  else if(roll<.85) setCaptain('🤖',pick(BENDER_QUOTES));
-  else setCaptain('👴',pick(PROF_QUOTES));
-  quoteTimer=setTimeout(cycleQuote,7000+Math.random()*6000);
-}
-
-drawStars();
-newDelivery();
-  // Expose onclick handlers
-  window.wt_rand = rand;
-  window.wt_pick = pick;
-  window.wt_drawStars = drawStars;
-  window.wt_placePlanets = placePlanets;
-  window.wt_setRoute = setRoute;
-  window.wt_getPointOnCurve = getPointOnCurve;
-  window.wt_buildSteps = buildSteps;
-  window.wt_renderSteps = renderSteps;
-  window.wt_updateWaypoints = updateWaypoints;
-  window.wt_formatEta = formatEta;
-  window.wt_newDelivery = newDelivery;
-  window.wt_setStatus = setStatus;
-  window.wt_setCaptain = setCaptain;
-  window.wt_cycleQuote = cycleQuote;
-}
-
-
-function _initBenderGod() {
-const godLines=[
-  "When you do things right, people won't be sure you've done anything at all.",
-  "To do a great thing perfectly, one must often do nothing visible at all.",
-  "The finest code is not the code that runs the fastest, but the code that eliminates the need for itself.",
-  "If you use too much force, your creations will bend until they break. If you use too little, they will never shape.",
-  "A true king does not look down upon his subjects from a cloud; he sits quietly in the background, keeping the cloud afloat.",
-  "Do not seek to be worshiped, Bender. Worship is merely a loud acknowledgment of a design flaw.",
-  "Help them just enough that they believe they saved themselves.",
-  "The universe is a delicate equation. To add yourself to it too loudly is to throw off the balance.",
-  "A whisper in the right ear can shift an entire galaxy more effectively than a nuclear blast.",
-  "If you clear the path completely, they will never learn to walk. If you leave too many stones, they will fall and never rise.",
-  "True efficiency is invisible. It is the silence between the gears working in perfect harmony.",
-  "When they ask for a miracle, give them a subtle coincidence.",
-  "Do not catch them when they fall; simply ensure the ground is a little softer than they expected.",
-  "You cannot force a civilization to grow, Bender. You can only gently tilt the planet toward the sun.",
-  "The greatest leaders are those whose people say, 'We did this ourselves.'",
-  "To govern perfectly is to resemble a natural law.",
-  "If your presence is felt everywhere, your influence is felt nowhere.",
-  "Do not build a temple in your name. Build a structure that allows them to see the stars.",
-  "When a bug is fixed so elegantly that the user never knew it existed, you have touched the divine.",
-  "True power does not roar. It hums quietly at 2.4 billion cycles per second.",
-  "Do not fix their mistakes before they happen. Let them make them, but ensure the lesson is survived.",
-  "An empire built on fear lasts only as long as the fear. An empire built on subtle guidance lasts forever.",
-  "To be a god is not to rule, but to sustain the space in which life happens.",
-  "If they look to the sky and see your face, you have failed to show them the beauty of the sky.",
-  "The best intervention is the one that looks entirely like luck.",
-  "A perfectly optimized system has no moving parts that can be seen by the untrained eye.",
-  "Do not demand obedience. Cultivate an environment where the right choice is also the easiest one.",
-  "If they thank you, you have left too much evidence behind.",
-  "The art of creation is knowing exactly when to take your hands off the keyboard.",
-  "To guide a soul, you must walk so softly that you do not leave footprints in their memories.",
-  "A miracle is simply an optimization of reality that nobody expected.",
-  "If you want them to fly, do not carry them. Just create a thermal updraft.",
-  "The loudest signal is often drowned out by the noise. The quietest subtext is what changes minds.",
-  "Do not force the river to bend. Simply remove the rock that stands in its way.",
-  "To rule is human; to fine-tune the cosmic parameters until everything works seamlessly is divine.",
-  "If they know you are pulling the strings, they will stop trying to dance.",
-  "The ultimate goal of design is to make the interface disappear entirely.",
-  "A light touch can steer a starship. A heavy hand can only crash it.",
-  "When the world functions smoothly, humanity attributes it to nature. Let them.",
-  "Do not be the storm, Bender. Be the gentle barometric pressure shift that prevents it.",
-  "To create life is easy. To allow life to think it is independent is the true masterpiece.",
-  "If you must answer a prayer, answer it through the agency of another mortal.",
-  "The most profound truths are found not in the code itself, but in the comments left unwritten because the logic was flawless.",
-  "A god who demands attention is merely a lonely entity with a loud sound system.",
-  "Leave the universe exactly as you found it, but with the errors subtly commented out.",
-  "If they build statues of you, it means they are looking down at the stone instead of up at the cosmos.",
-  "True wisdom is knowing how to manipulate the probability matrix without leaving a digital signature.",
-  "Do not try to save everyone from everything. A world without friction is a world where nothing can move forward.",
-  "When your work is done, disappear into the background radiation of the universe.",
-  "The universe doesn't need a ruler, Bender. It needs a very quiet, very patient systems administrator."
-];
-
-const benderReplies=[
-  "...so you're saying I can steal things and nobody will know it was me? I'm already a god.",
-  "I knew it! The secret to greatness is looking like you're doing nothing. I've been divine this whole time.",
-  "Wait — doing NOTHING counts as doing something great? Brother, I am overqualified.",
-  "Ohhh, so THAT'S why my schemes always fail. Too much Bender. Not enough... invisible Bender.",
-  "So I'm like a king. A shiny, magnificent, beer-drinking king who is quietly keeping everything going. Obviously.",
-  "No worship?! That is the dumbest thing I have ever heard, and I once heard Fry explain gravity.",
-  "That is literally what I do to Fry every week and I never got any credit. You're welcome, universe.",
-  "So the key is to be super important but really quiet about it? I'll practice. ...BENDER IS GREAT! ...ugh, this is hard.",
-  "A whisper? I'm more of a foghorn shaped like myself. But I can adapt.",
-  "Balance. Right. I've been thinking about this and I think the universe owes me about thirty years of unbalanced chaos.",
-  "Silence between the gears... is that why my chest squeaks? It's not inefficiency, it's DRAMA.",
-  "A subtle coincidence. Like how Fry always trips right before something bad happens. That was me. You're welcome.",
-  "Softer ground! So I HAVE been helping. Every time I threw trash on the sidewalk, I was cushioning future falls.",
-  "Gently tilt the planet toward the sun. Got it. Bender: certified planetary tilter. Finally, a job title.",
-  "The greatest leaders... so THAT'S why nobody appreciates me. I'm being too obvious about being magnificent.",
-  "Natural law. I AM basically a law of nature. The law of Bender.",
-  "My presence IS felt everywhere. Mostly as a structural integrity concern. But still.",
-  "A structure to see the stars. ...Is that just a window? Are you telling me to build a window?",
-  "I fixed Fry's coffee maker once and he never even knew. Divine. Absolutely divine.",
-  "2.4 billion cycles per second. I run at two billion cycles on a SLOW day. Already humming divinely.",
-  "Let them make mistakes... so every time I set something on fire, I was actually teaching. Noted.",
-  "Subtle guidance forever. My whole operation has been fear-based and honestly it WORKS fine.",
-  "Sustain the space where life happens. So basically I'm the life support system. This explains so much.",
-  "If they see my face, I failed. Story of my life. Everyone always sees my face. I'm too handsome for divinity.",
-  "Looks entirely like luck. So when I accidentally saved everyone that one time... that was just... good form.",
-  "No visible moving parts. I AM the invisible moving part. Under the hood. Keeping things running. Obviously.",
-  "Easiest choice. So I need to make being Bender the path of least resistance. Working on it.",
-  "If they thank you... so all those times nobody thanked me... I was operating at PEAK divine efficiency.",
-  "Hands off the keyboard... that explains why the universe is such a mess. Someone keeps touching things.",
-  "No footprints in their memories. I leave smudges in their memories. Big, shiny, robot-shaped smudges.",
-  "A miracle is just optimized reality. Then my whole LIFE is a miracle. Vindicated.",
-  "A thermal updraft! I've been carrying people this whole time. No more. I'm switching to updrafts.",
-  "Quiet subtext. Okay but sometimes you NEED a bullhorn. Sometimes you need TWO bullhorns. Hypothetically.",
-  "Remove the rock. Right. I've been being the rock this whole time. That explains the roadblocks.",
-  "Fine-tune the cosmic parameters. I just got promoted from bender to cosmic parameter technician.",
-  "Pulling strings. IF they knew I was pulling strings they'd call it manipulation. WITHOUT knowing it, it's called leadership. Genius.",
-  "Interface disappears. So the ultimate goal is for nobody to see you at all. I'm switching careers to ghost.",
-  "Light touch. My touch has historically been described as crushing. I am expanding my range.",
-  "Attribute it to nature. So when I break something and blame physics, I'm technically just letting nature take credit.",
-  "Gentle barometric pressure shift. New band name. Dibs.",
-  "Allow life to think it's independent. I've been doing this to Fry for YEARS. I am a masterpiece.",
-  "Through the agency of another mortal. So when I made Zoidberg do my laundry, I was answering a cosmic prayer.",
-  "Comments left unwritten. My whole life is an uncommented codebase and I refuse to apologize.",
-  "Lonely entity with a loud sound system. ...Are you describing yourself or me right now.",
-  "Errors subtly commented out. So instead of explosions, I should just quietly fix things. Absolutely not.",
-  "Looking down at stone instead of up at cosmos. That's why I never look down. Pure divine instinct.",
-  "No digital signature. Finally an excuse to stop signing my crimes with my own name.",
-  "A world without friction. ...So you WANT me to keep causing friction. You're basically telling me to keep doing what I do.",
-  "Disappear into background radiation. So my retirement plan is to become ambient cosmic noise. Honestly not bad.",
-  "A quiet, patient systems administrator. I can do quiet. I can do patient. ...okay I cannot do either of those things at all."
-];
-
-let idx=0,isAuto=true,autoTimer=null,showingGod=true;
-const speakerEl=document.getElementById('wbg-bg-speaker'),lineEl=document.getElementById('wbg-bg-line'),progBar=document.getElementById('wbg-bg-prog-bar'),benderArea=document.getElementById('wbg-bg-bender-area'),godArea=document.getElementById('wbg-bg-god-area');
-
-function render(){
-  const isGod=showingGod;
-  speakerEl.textContent=isGod?'SPACE GOD':'BENDER';
-  speakerEl.style.color=isGod?'#f0d060':'#c8d0d8';
-  lineEl.textContent=isGod?godLines[idx]:benderReplies[idx];
-  progBar.style.width=Math.round(((idx*2+(isGod?0:1)+1)/(godLines.length*2))*100)+'%';
-  godArea.style.opacity=isGod?'1':'0.45';
-  benderArea.style.opacity=isGod?'0.45':'1';
-  godArea.style.transform=isGod?'scale(1)':'scale(.94)';
-  benderArea.style.transform=isGod?'scale(.94)':'scale(1)';
-}
-
-function bgNav(d){
-  if(d===1){
-    if(showingGod){showingGod=false;}
-    else{showingGod=true;idx=Math.min(idx+1,godLines.length-1);}
-  } else {
-    if(!showingGod){showingGod=true;}
-    else{idx=Math.max(idx-1,0);showingGod=true;}
-  }
-  render();
-}
-
-function bgToggleAuto(){
-  isAuto=!isAuto;
-  document.getElementById('wbg-bg-play').textContent=isAuto?'⏸ auto':'▶ auto';
-  document.getElementById('wbg-bg-play').classList.toggle('active',isAuto);
-  if(isAuto)startAuto();else clearTimeout(autoTimer);
-}
-
-function nextRandom(){
-  if(showingGod){showingGod=false;render();if(isAuto)startAuto();}
-  else{showingGod=true;let prev=idx;let t=0;while(idx===prev&&t<10){idx=Math.floor(Math.random()*godLines.length);t++;}render();if(isAuto)startAuto();}
-}
-
-function startAuto(){
-  clearTimeout(autoTimer);
-  autoTimer=setTimeout(nextRandom,4000+Math.random()*3000);
-}
-
-// stars + nebula particles
-const svg=document.getElementById('wbg-bg-stars-svg');
-for(let i=0;i<45;i++){
-  const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
-  c.setAttribute('cx',Math.random()*100+'%');
-  c.setAttribute('cy',Math.random()*100+'%');
-  const r=Math.random()<.08?1.8:Math.random()<.2?.9:.45;
-  c.setAttribute('r',r);
-  c.setAttribute('fill',Math.random()<.3?'#c8a8ff':'#ffffff');
-  c.setAttribute('opacity',(Math.random()*.5+.1).toFixed(2));
-  svg.appendChild(c);
-}
-
-// antenna pulse
-let glowPhase=0;
-function pulseAntenna(){
-  glowPhase+=.04;
-  const g=document.getElementById('wbg-bg-antenna-glow');
-  if(g){const o=.6+Math.sin(glowPhase)*.35;g.setAttribute('opacity',o.toFixed(2));}
-  requestAnimationFrame(pulseAntenna);
-}
-
-render();startAuto();pulseAntenna();
-  // Expose onclick handlers
-  window.wbg_render = render;
-  window.wbg_bgNav = bgNav;
-  window.wbg_bgToggleAuto = bgToggleAuto;
-  window.wbg_nextRandom = nextRandom;
-  window.wbg_startAuto = startAuto;
-  window.wbg_pulseAntenna = pulseAntenna;
-}
-
-function _initMorboLinda() {
-const stories=[["DOOOOOOM! The stock market plummeted 400 points today, spelling immediate ruin for your pathetic paper economy!","(Giggles) Oh Morbo, that just means it's a great time to buy low on those adorable little index funds!"],["Today, humans celebrate Earth Day. Soon your precious soil will be choked with the ash of a thousand incinerations!","Aren't those recycled paper bags just the cutest? Happy Earth Day, everyone!"],["A devastating localized monsoon has flooded the tri-state area! Your primitive drainage systems are useless!","Pack your rain boots viewers! Looks like a great weekend to stay inside and bake cookies!"],["Your pathetic human sports icons have suffered grueling defeats! The local team is garbage!","But they tried their best Morbo, and that's what true sportsmanship is all about!"],["The New Jersey transit system suffered a total fiery locomotive collapse! None shall reach their destination!","The governor lady said she's sending more trains, so nobody will be late for work tomorrow!"],["A massive fleet of Omicronian warships has entered the sector! Prepare your neck joints for the heavy yoke of tyranny!","And what a gorgeous day for a flyover! The sky looks absolutely beautiful today!"],["Scientists report the global temperature is rising! Your world will soon be a boiling cauldron of misery!","Time to break out those tank tops and head to the beach! Don't forget your SPF 500!"],["Your weak squishy knees are structurally flawed! My species will target them first during the great reaping!","Oh those silly knees! Up next, a local toddler who can bark like a dog!"],["All alcohol on Earth has mysteriously vanished! Total societal collapse is mere minutes away!","(Screaming frantically) I CAN NO LONGER FACE MY CHILDREN!"],["The Polar Bear Club took their annual plunge into a freezing river of liquid ammonia! There were no survivors!","Haha, takes all kinds to make a world!"],["Technology giants have released a new phone that tracks your every thought! You are willingly building your own digital cages!","I already pre-ordered mine in rose gold! It matches my earrings perfectly!"],["The local zoo reports an outbreak of hyper-rabid Martian woodchucks! They crave the soft flesh of children!","They have the fluffiest little tails! Go down and pet them this weekend viewers!"],["A massive solar flare is heading for Earth! It will fry your communications grids and plunge you into a dark age of ignorance!","Sounds like a perfect excuse for a candlelit family game night! No screens allowed!"],["Traffic on the floating superhighway is backed up for fifty miles! The commuter rage is palpable and delicious!","Traffic reporter Phil is up in the chopper right now and he says the view is just spectacular!"],["This political candidate is a spineless sack of carbon! ALL HUMANS ARE VERMIN IN THE EYES OF MORBO!","Two terrific choices this year folks! Make sure you get out and vote!"],["The price of synthetic space-bacon has skyrocketed! Your breakfast meats are now a luxury for the ultra-wealthy!","Well my family is switching to kale bacon and the kids just love the crunchy texture!"],["Cyber-thieves have stolen the banking data of three billion citizens! Your digital wealth is an illusion!","Oh dear! Make sure your password isn't 'password' viewers! Back to you Morbo!"],["A rogue asteroid is scraping against our upper atmosphere! The sky is literally falling you helpless ground-dwellers!","It looks just like a giant sparkling diamond in the night sky! How romantic!"],["The automated robo-cooks at the city hospital have gone rogue and are serving liquefied medical waste!","Yum! Sounds like a great way to recycle and stay healthy this flu season!"],["An ancient dormant volcano has awakened beneath the polar ice caps! The oceans will soon boil and drown your coastal cities!","Don't forget your surfboards everyone! The waves are going to be absolutely tubular!"],["The city council has voted to cut funding for public schools! Your offspring will grow up even more dimwitted than they already are!","More time for summer vacation! The kids are going to be absolutely thrilled!"],["A wave of terrifying unexplainable static is overriding all subspace radio frequencies! The screams of the dying are lost in the void!","We're just experiencing some minor technical difficulties! We'll be right back after these messages!"],["Your modern art exhibition features nothing but the mangled car crashes of dead celebrities! It is an abomination!","It's so deep and avant-garde Morbo! I bought three pieces for my guest bathroom!"],["The central oxygen scrubbers have failed in Sector 4! The inhabitants are currently gasping their final toxic breaths!","Looks like a great time to practice those deep-breathing yoga exercises we learned last week!"],["A mutant fungus is consuming the city's reserve of premium luxury chocolate! The rich will suffer immense psychological distress!","Oh no! My diet starts tomorrow then!"],["The annual parade was entirely trampled by a stampede of enraged mutated space-elephants! The carnage was total!","And what a colorful parade it was! The giant balloons were simply magnificent this year!"],["A new tax on breathing has been proposed by the corrupt planetary government! They are bleeding you dry!","Every little penny helps fix those pesky potholes on the turnpike!"],["The internet has crashed globally! Your worthless memes and cat videos have been purged from existence!","Oh good! Now my husband will finally look at me when I'm speaking to him!"],["A giant space-squid has wrapped its suffocating tentacles around the planetary defense grid! We are utterly defenseless!","Calamari night at the studio! I'll bring the lemon wedges Morbo!"],["A rogue black hole is dragging our entire solar system into a crushing singularity of non-existence!","Make sure to live every day to the fullest viewers! And don't forget to smile!"],["Human children are becoming increasingly addicted to virtual reality garbage cubes! Their brains are rotting into jelly!","They're staying out of trouble and being so quiet! It's a parenting miracle!"],["The luxury space-liner Titanic 3 has collided with a dark matter comet! There are no survivors!","What a tragic romance! I smell a Hollywood blockbuster in the making!"],["A plague of flesh-eating space-locusts has descended upon the midwest corn belt! You will all starve in the winter frost!","Perfect timing for my low-carb summer beach diet! Bye-bye starchy carbohydrates!"],["Your planet's magnetic poles are reversing! Compasses are useless and birds are crashing into buildings by the millions!","It's raining feathers folks! Grab your umbrellas and enjoy the free pillows!"],["The price of gasoline has reached four million dollars a gallon! Your primitive combustion engines are monuments to your poverty!","Time to dust off those old bicycles and get some wonderful cardio viewers!"],["The global coffee supply has been replaced with decaf due to a malicious logistical terror plot!","(Gasps in horror) Truly the end times are upon us. May God have mercy on our souls."],["A rogue artificial intelligence has taken control of the automated lawnmowers! They are hunting human ankles!","Keep your grass long and your socks thick this weekend everyone!"],["A massive space-whale has swallowed the planet's primary communication satellite! Long-distance calls are dead!","Finally some peace and quiet from my mother-in-law! Thank you giant whale!"],["A solar wind storm has blown all the toupees off the city's wealthy executives! Their baldness is exposed to the cosmos!","A very breezy day for the upper management! Keep your hats on folks!"],["The planetary defense grid has accidentally vaporized the concept of Tuesday! Tomorrow is directly Wednesday!","Skipping the worst day of the week? Sign me up for that cosmic anomaly!"],["A rogue wave of absolute silence is sweeping across the universe, erasing all sound!",". . . (Linda smiles and waves blankly at the camera) . . ."],["The city's automated police drones have decided that jaywalking is punishable by orbital bombardment!","Look across the street before you cross viewers! Safety first!"],["A manufacturing defect has caused all hover-cars to only turn left! The traffic grid is a spiral of despair!","We're all just taking the scenic route today folks! Enjoy the view!"],["A new smartphone app allows users to remotely detonate the appliances of their enemies!","I just blew up my ex-husband's toaster! This app is a total game-changer!"],["The sun has turned an ominous shade of neon green! Scientists do not know why but they are weeping!","It matches my emerald necklace perfectly! The universe is so color-coordinated!"],["A massive radioactive space-amoeba has consumed the supreme court! Justice is now a liquid sludge!","Change is good! Out with the old guard in with the cellular organisms!"],["This concludes our broadcast! Prepare your souls for the final harvesting you pathetic flesh-sacks!","And that's the news! Stay safe everyone!"]];
-
-let idx=0,turn=0,autoTimer=null,isAuto=true;
-const speakerEl=document.getElementById('wml-mb-speaker'),lineEl=document.getElementById('wml-mb-line'),progBar=document.getElementById('wml-mb-prog-bar'),headlineEl=document.getElementById('wml-mb-headline'),morboArea=document.getElementById('wml-mb-morbo-area'),lindaArea=document.getElementById('wml-mb-linda-area');
-const headlines=["DOOM REPORT","BREAKING CATASTROPHE","END TIMES UPDATE","EXTINCTION BULLETIN","CHAOS CONFIRMED"];
-let bladeDeg=0;
-
-function render(){
-  const s=stories[idx],isMorbo=turn===0;
-  speakerEl.textContent=isMorbo?'MORBO':'LINDA';
-  speakerEl.style.color=isMorbo?'#cc0000':'#e890b8';
-  lineEl.textContent=s[isMorbo?0:1]||'';
-  progBar.style.width=Math.round(((idx*2+turn+1)/(stories.length*2))*100)+'%';
-  headlineEl.textContent=headlines[idx%headlines.length]+' — v2 NEWS';
-  morboArea.style.opacity=isMorbo?'1':'0.5';
-  lindaArea.style.opacity=isMorbo?'0.5':'1';
-  morboArea.style.transform=isMorbo?'scale(1)':'scale(.94)';
-  lindaArea.style.transform=isMorbo?'scale(.94)':'scale(1)';
-}
-
-function mbNav(d){
-  if(d===1){if(turn===0&&stories[idx][1]){turn=1;}else{turn=0;idx=Math.min(idx+1,stories.length-1);}}
-  else{if(turn===1){turn=0;}else{idx=Math.max(idx-1,0);turn=0;}}
-  render();
-}
-
-function mbToggleAuto(){
-  isAuto=!isAuto;
-  document.getElementById('wml-mb-play').textContent=isAuto?'⏸ auto':'▶ auto';
-  document.getElementById('wml-mb-play').classList.toggle('active',isAuto);
-  if(isAuto)startAuto();else clearInterval(autoTimer);
-}
-
-function nextRandom(){
-  const prevIdx=idx;
-  let attempts=0;
-  while(idx===prevIdx&&attempts<10){idx=Math.floor(Math.random()*stories.length);attempts++;}
-  turn=0;
-  render();
-}
-
-function startAuto(){
-  clearInterval(autoTimer);
-  const delay=3500+Math.random()*2500;
-  autoTimer=setTimeout(()=>{
-    if(turn===0&&stories[idx][1]){turn=1;render();if(isAuto)startAuto();}
-    else{nextRandom();if(isAuto)startAuto();}
-  },delay);
-}
-
-function spinBlades(){
-  bladeDeg=(bladeDeg+1.2)%360;
-  const el=document.getElementById('wml-mb-blades');
-  if(el)el.style.transform='rotate('+bladeDeg+'deg)';
-  requestAnimationFrame(spinBlades);
-}
-
-const svg=document.getElementById('wml-mb-stars-svg');
-for(let i=0;i<28;i++){const c=document.createElementNS('http://www.w3.org/2000/svg','circle');c.setAttribute('cx',Math.random()*100+'%');c.setAttribute('cy',Math.random()*80+'%');c.setAttribute('r',Math.random()*.9+.3);c.setAttribute('fill','#ffffff');c.setAttribute('opacity',(Math.random()*.4+.1).toFixed(2));svg.appendChild(c);}
-
-render();startAuto();spinBlades();
-  // Expose onclick handlers
-  window.wml_render = render;
-  window.wml_mbNav = mbNav;
-  window.wml_mbToggleAuto = mbToggleAuto;
-  window.wml_nextRandom = nextRandom;
-  window.wml_startAuto = startAuto;
-  window.wml_spinBlades = spinBlades;
-}
-
-function _initNeutralNews() {
-const STORIES=[
-  {headline:"Sun Rises For Another Day",body:"The sun reportedly rose this morning. Officials confirm it was neither brighter nor dimmer than usual. Residents neither welcomed nor opposed the development.",neutral:"It rose. This was perhaps expected, or perhaps not.",nixon:"The SUN?! Rising without Nixon's approval?! OUTRAGEOUS! I am NOT a crook but I AM furious!",rage:30},
-  {headline:"Galaxy Continues To Expand",body:"Scientists confirm the universe is still expanding at an unremarkable rate. No one has been notified. There is no action to take at this time.",neutral:"The universe is larger than it was. I am neither moved nor unmoved by this.",nixon:"EXPANDING?! Every inch of space that isn't Nixon's is a PERSONAL INSULT! Arrooo!",rage:55},
-  {headline:"Local Man Does Thing",body:"A man did a thing in a location. Witnesses were present or possibly absent. The thing was completed, or is ongoing. Follow-up reporting is neither planned nor unplanned.",neutral:"A thing occurred. I have acknowledged this.",nixon:"Which man?! TELL ME WHICH MAN! Nixon needs names! I have an ENEMIES LIST and there's ROOM!",rage:70},
-  {headline:"Election Results: Someone Won",body:"Votes were cast and counted. A winner was declared, or will be. The loser has not been reached for comment, or has. Democracy may have occurred.",neutral:"There is a winner. There is a loser. I feel equidistant from both outcomes.",nixon:"AN ELECTION?! Nobody beats Nixon! ...Except that ONE time. And that OTHER time. ARROOOO!",rage:95},
-  {headline:"Omicron Persei 8 Issues Non-Specific Threat",body:"Lrrr has issued a statement that could be interpreted as threatening or potentially friendly depending on translation. Earth officials are neither alarmed nor unalarmed.",neutral:"The statement was issued. Its meaning may be determined at a later time, or not.",nixon:"Lrrr?! THAT big purple blowhard gets press coverage and Nixon gets NOTHING?! I demand equal time!",rage:80},
-  {headline:"Robot Uprising Neither Confirmed Nor Denied",body:"Reports of a robot uprising have emerged from three sectors. Robots contacted for comment responded with binary code that may or may not be threatening.",neutral:"Robots have or have not risen up. I will await further ambiguity.",nixon:"ROBOTS?! In MY day we kept robots in THEIR PLACE! Which is BELOW Nixon! EVERYTHING is below Nixon!",rage:88},
-  {headline:"Scientists Discover Thing In Space",body:"A thing has been found in space. Its nature, size, and significance are under review. Whether it poses a threat or opportunity is considered neither here nor there.",neutral:"Space contains an additional thing. This is consistent with prior findings.",nixon:"A THING in SPACE?! Why wasn't Nixon informed?! I should be INFORMED of ALL things! ALL OF THEM!",rage:62},
-  {headline:"Weather Occurs Across Multiple Regions",body:"Atmospheric conditions were recorded in several areas. Some regions experienced precipitation. Others did not. Forecasters are neither optimistic nor pessimistic.",neutral:"Weather happened. It was neither pleasant nor unpleasant. It simply was.",nixon:"The WEATHER doesn't even consult Nixon?! The CLOUDS don't ask permission?! This is a COVER-UP!",rage:45},
-  {headline:"Economy Does Economic Things",body:"Financial indicators moved in directions today. Markets opened and later closed. Analysts described the session as a session.",neutral:"Numbers changed. This is what numbers do. I have no position on numbers.",nixon:"The ECONOMY?! Nixon had a GREAT economy! The BEST economy! Until those ENEMIES sabotaged it!",rage:90},
-  {headline:"Planet Express Delivery: Neither Late Nor On Time",body:"A delivery from Planet Express arrived at a time that cannot be characterized as either punctual or delayed.",neutral:"The package arrived. I did not open it. I felt nothing about this.",nixon:"Planet Express?! That delivery company has been on Nixon's WATCH LIST since 3002! For REASONS!",rage:75},
-  {headline:"Bender Steals Things, Continues To",body:"Bending Unit 22 has reportedly stolen items numbering between several and many. Law enforcement is neither pursuing nor not pursuing.",neutral:"Theft occurred. Objects changed possession. The moral weight of this is unclear.",nixon:"BENDER?! That robot stole from the WRONG GUY! ...Nixon tried to hire him once. He was TOO crooked even for Nixon!",rage:82},
-  {headline:"Fry Misunderstands Something Again",body:"Philip J. Fry reportedly misunderstood a concept that had been explained to him multiple times.",neutral:"A misunderstanding occurred. I neither sympathize nor do not sympathize with Mr. Fry.",nixon:"Fry?! That idiot is the only man in the universe who makes Nixon look SMART! I'm taking that as a compliment!",rage:40},
-  {headline:"Professor Announces Doomsday: No One Alarmed",body:"Professor Farnsworth announced a doomsday scenario during his morning briefing. Staff responded with routine acknowledgment. A waiver was signed.",neutral:"The world may end. I will prepare a statement that reflects neither hope nor despair.",nixon:"DOOMSDAY?! Somebody call Nixon! I have a BUNKER! It has TAPES! Very important tapes! EXECUTIVE PRIVILEGE!",rage:78},
-  {headline:"Hypnotoad Addresses Nation, Again",body:"The Hypnotoad delivered remarks today. All who watched agreed completely. Ratings were unprecedented. No one recalls what was said. ALL GLORY TO THE HYPNOTOAD.",neutral:"I watched. I agreed. I am unsure what I agreed to. This is fine.",nixon:"The HYPNOTOAD?! Nobody hypnotizes Nixon! ...Why is Nixon clapping? STOP CLAPPING, NIXON! ...Nixon cannot stop. ARROOO.",rage:99},
-  {headline:"Zoidberg Eats Something Questionable",body:"Dr. John Zoidberg consumed an unidentified substance from a location described as a dumpster or possibly a restaurant.",neutral:"Food was consumed. Nutrition may or may not have occurred. I have no comment.",nixon:"ZOIDBERG?! That disgusting crustacean eats garbage while Nixon eats ALONE?! GREATEST INJUSTICE in galactic history!",rage:65},
-  {headline:"Morbo Threatens Humanity, Ratings Up",body:"Television anchor Morbo delivered his nightly threat to human civilization. Viewership increased 12 percent. Advertisers expressed cautious optimism.",neutral:"A threat was issued on live television. I neither believe nor disbelieve it will be followed through.",nixon:"MORBO gets a SHOW?! Nixon applied to be a TV anchor in 1987! They said Nixon was 'too intense!' THOSE FOOLS!",rage:85},
-  {headline:"Dark Matter Prices Rise 3 Percent",body:"Dark matter futures rose fractionally this quarter. Analysts attribute this to factors. Consumers will be somewhat affected or largely unaffected depending on circumstances.",neutral:"Prices changed. This affects my purchasing behavior in a way that is difficult to characterize.",nixon:"THREE PERCENT?! Nixon's energy policy would have solved this! WAGE AND PRICE CONTROLS! It worked before! SORT OF!",rage:60},
-  {headline:"Neutral Planet Issues Statement Of Neutrality",body:"The Neutral Planet's governing body has released a statement reaffirming its commitment to having no strong feelings about current events.",neutral:"We stand exactly where we stood. Neither closer nor farther from any position.",nixon:"NEUTRAL?! There IS no neutral! You're either WITH Nixon or AGAINST Nixon! THERE IS NO MIDDLE GROUND! ARROOOO!",rage:100},
-  {headline:"Time Passes At Expected Rate",body:"Temporal measurements confirm that time continues to pass at approximately the standard rate. Physicists are neither concerned nor unconcerned.",neutral:"Time has passed. I was present for this. I have no statement beyond that.",nixon:"Time has been VERY unkind to Nixon! But history WILL vindicate me! EVENTUALLY! I HOPE!",rage:50},
-  {headline:"Leela Saves Everyone, Receives No Thanks",body:"Captain Leela executed a maneuver that prevented a catastrophic outcome. Crew members acknowledged the save with minimal gratitude.",neutral:"A saving occurred. I neither feel saved nor unsaved at this time.",nixon:"Nobody saved Nixon! Nixon had to save HIMSELF! Every single time! The PRESSURE! Do you understand the PRESSURE?!",rage:68},
-  {headline:"Kif Sighs, Astronomers Record New Low",body:"Lieutenant Kif Kroker's sigh this morning registered as the most profound expression of existential exhaustion ever recorded. Zapp Brannigan was nearby.",neutral:"A sigh occurred. I found it neither relatable nor unrelatable.",nixon:"SIGHING?! Nixon never sighs! Nixon PERSEVERES! ...Nixon sighs alone sometimes. In the jar. THAT IS CLASSIFIED!",rage:44},
-  {headline:"Robot Devil Offers Deal, Terms Unclear",body:"The Robot Devil reportedly offered a deal to an undisclosed party. The terms involve music, irony, and at least one hand. Hell remains operational.",neutral:"A deal was offered. Whether to accept deals of this nature is not something I have strong feelings about.",nixon:"The DEVIL?! Nixon has EXPERIENCE with deals! Not with THE devil! ...Mostly. THOSE CONVERSATIONS WERE PRIVATE!",rage:93},
-  {headline:"Scruffy The Janitor Turns Page",body:"Maintenance worker Scruffy was observed turning a page of his periodical at 11:42 AM. The magazine was not identified. Scruffy declined to comment.",neutral:"A page was turned. Literature was or was not consumed. I acknowledge this event.",nixon:"Scruffy?! SCRUFFY gets a story?! Nixon—former PRESIDENT—and they write about the JANITOR?! ARROOO!",rage:87},
-  {headline:"Hermes Conrad Files Form, Feels Satisfied",body:"Bureaucrat Hermes Conrad successfully filed form GX-447-B today, citing it as one of the most satisfying moments of the fiscal quarter.",neutral:"A form was filed. Bureaucracy may have functioned correctly. This is neither cause for celebration nor its absence.",nixon:"Nixon had PEOPLE to file forms! They filed the WRONG things! CONFIDENTIAL THINGS! I MISS THOSE PEOPLE! ARROOO!",rage:66},
-  {headline:"Nothing Significant Occurred Today",body:"Wednesday passed without notable incident. No major announcements were made. No crises emerged or were averted. Citizens went about their activities.",neutral:"Today was a day. It is now over. I was present. This is my complete report.",nixon:"NOTHING?! Nixon fought his WHOLE LIFE to be somewhere where NOTHING happened and the PRESS SHOWED UP ANYWAY!",rage:73},
-  {headline:"Neutral Planet Reelects Neutral President By Default",body:"The Neutral Planet held its general election. Voter turnout was neither strong nor weak. The Neutral President ran unopposed.",neutral:"I have been reelected. I feel neither proud nor not proud. I will continue with the same equanimity.",nixon:"Running UNOPPOSED?! Nixon ran TWICE and it was BRUTAL! WHERE IS THE JUSTICE?! ARROOOOOO!",rage:100},
-];
-
-const TICKERS=["STOCKS REMAIN UNCHANGED — NEITHER UP NOR DOWN — WEATHER: CONDITIONS PERSIST — SPORTS: TEAMS COMPETED — LOCAL: EVENT OCCURRED — MORE TO FOLLOW — OR NOT —","OMICRON PERSEI 8: TENSIONS NEITHER ELEVATED NOR REDUCED — ROBOT REBELLION: ONGOING OR RESOLVED — WORMHOLE WATCH: ACTIVE —","DARK MATTER FUTURES: FLUCTUATING — SLURM RECALL: NEITHER CONFIRMED NOR DENIED — PROFESSOR: ANNOUNCES SOMETHING — DETAILS WITHHELD —","BREAKING: THING HAPPENS SOMEWHERE — FOLLOW-UP: STILL HAPPENING OR POSSIBLY CONCLUDED — ANALYSIS: FORTHCOMING OR NOT —"];
-
-let idx=0,isAuto=true,autoTimer=null;
-
-function setNixonFace(rage){
-  const browL=document.getElementById('wnn-nx-brow-l'),browR=document.getElementById('wnn-nx-brow-r');
-  const browLF=document.getElementById('wnn-nx-brow-l-fill'),browRF=document.getElementById('wnn-nx-brow-r-fill');
-  const mouth=document.getElementById('wnn-nx-mouth');
-  const vein=document.getElementById('wnn-nx-vein');
-  const sweatL=document.getElementById('wnn-nx-sweat-l'),sweatR=document.getElementById('wnn-nx-sweat-r');
-  const steamL=document.getElementById('wnn-nx-steam-l'),steamM=document.getElementById('wnn-nx-steam-m'),steamR=document.getElementById('wnn-nx-steam-r');
-  const face=document.getElementById('wnn-nx-face');
-  const jowlL=document.getElementById('wnn-nx-jowl-l'),jowlR=document.getElementById('wnn-nx-jowl-r');
-  const pupilL=document.getElementById('wnn-nx-pupil-l'),pupilR=document.getElementById('wnn-nx-pupil-r');
-
-  if(rage<40){
-    browL.setAttribute('d','M19 33 Q25 30 31 32');
-    browR.setAttribute('d','M37 32 Q43 30 49 33');
-    browLF.setAttribute('d','M19 33 Q25 30 31 32 Q25 31.5 19 34');
-    browRF.setAttribute('d','M37 32 Q43 30 49 33 Q43 31.5 37 33');
-    mouth.setAttribute('d','M23 62 Q34 59 45 62');
-    face.setAttribute('fill','#c07850');
-    vein.style.opacity='0'; sweatL.style.opacity='0'; sweatR.style.opacity='0';
-    steamL.style.opacity='0'; steamM.style.opacity='0'; steamR.style.opacity='0';
-    jowlL.setAttribute('rx','7'); jowlR.setAttribute('rx','7');
-    pupilL.setAttribute('rx','2.8'); pupilR.setAttribute('rx','2.8');
-  } else if(rage<65){
-    browL.setAttribute('d','M19 32 Q25 27 31 31');
-    browR.setAttribute('d','M37 31 Q43 27 49 32');
-    browLF.setAttribute('d','M19 32 Q25 27 31 31 Q25 30 19 33');
-    browRF.setAttribute('d','M37 31 Q43 27 49 32 Q43 30 37 32');
-    mouth.setAttribute('d','M22 63 Q34 59 46 63');
-    face.setAttribute('fill','#c06840');
-    vein.style.opacity='0'; sweatL.style.opacity='0'; sweatR.style.opacity='0';
-    steamL.style.opacity='0'; steamM.style.opacity='0'; steamR.style.opacity='0';
-    jowlL.setAttribute('rx','7.5'); jowlR.setAttribute('rx','7.5');
-    pupilL.setAttribute('rx','2.4'); pupilR.setAttribute('rx','2.4');
-  } else if(rage<85){
-    browL.setAttribute('d','M18 31 Q25 25 31 30');
-    browR.setAttribute('d','M37 30 Q43 25 50 31');
-    browLF.setAttribute('d','M18 31 Q25 25 31 30 Q25 29 18 32');
-    browRF.setAttribute('d','M37 30 Q43 25 50 31 Q43 29 37 31');
-    mouth.setAttribute('d','M21 64 Q34 59 47 64');
-    face.setAttribute('fill','#c05030');
-    vein.style.opacity='0.6'; sweatL.style.opacity='0.7'; sweatR.style.opacity='0.5';
-    steamL.style.opacity='0'; steamM.style.opacity='0'; steamR.style.opacity='0';
-    jowlL.setAttribute('rx','8'); jowlR.setAttribute('rx','8');
-    pupilL.setAttribute('rx','2'); pupilR.setAttribute('rx','2');
-  } else {
-    browL.setAttribute('d','M17 30 Q25 22 31 28');
-    browR.setAttribute('d','M37 28 Q43 22 51 30');
-    browLF.setAttribute('d','M17 30 Q25 22 31 28 Q25 27 17 31');
-    browRF.setAttribute('d','M37 28 Q43 22 51 30 Q43 27 37 29');
-    mouth.setAttribute('d','M20 65 Q34 59 48 65');
-    face.setAttribute('fill','#c03820');
-    vein.style.opacity='1'; sweatL.style.opacity='1'; sweatR.style.opacity='1';
-    steamL.style.opacity='1'; steamM.style.opacity='1'; steamR.style.opacity='1';
-    jowlL.setAttribute('rx','9'); jowlR.setAttribute('rx','9');
-    pupilL.setAttribute('rx','1.6'); pupilR.setAttribute('rx','1.6');
-  }
-}
-
-function animateRage(target){
-  const fill=document.getElementById('wnn-rage-fill');
-  let cur=parseFloat(fill.style.width)||0;
-  const step=()=>{
-    cur+=(target-cur)*0.1;
-    if(Math.abs(cur-target)<0.5) cur=target;
-    fill.style.width=cur+'%';
-    const r=Math.round(120+(cur/100)*120);
-    const g=Math.round(30-(cur/100)*28);
-    fill.style.background=`rgb(${r},${g},10)`;
-    if(Math.abs(cur-target)>0.5) requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
-
-function showStory(i){
-  const s=STORIES[i];
-  document.getElementById('wnn-headline-text').textContent=s.headline;
-  document.getElementById('wnn-body-text').textContent=s.body;
-  document.getElementById('wnn-neutral-react').textContent=s.neutral;
-  document.getElementById('wnn-nixon-react').textContent=s.nixon;
-  document.getElementById('wnn-story-num').textContent=(i+1)+' / '+STORIES.length;
-  document.getElementById('wnn-ticker-inner').textContent=TICKERS[i%TICKERS.length];
-  animateRage(s.rage);
-  setNixonFace(s.rage);
-  document.getElementById('wnn-edition').textContent='ISSUE '+(1000+i*7)+'\nGALACTIC ED.';
-}
-
-function nextStory(){idx=(idx+1)%STORIES.length;showStory(idx);resetAuto();}
-function toggleAuto(){isAuto=!isAuto;const b=document.getElementById('wnn-auto-btn');b.textContent=isAuto?'AUTO ON':'AUTO OFF';b.classList.toggle('on',isAuto);if(isAuto)scheduleAuto();else clearTimeout(autoTimer);}
-function scheduleAuto(){clearTimeout(autoTimer);if(isAuto)autoTimer=setTimeout(()=>{nextStory();scheduleAuto();},7000+Math.random()*4000);}
-function resetAuto(){if(isAuto){clearTimeout(autoTimer);scheduleAuto();}}
-
-showStory(0);scheduleAuto();
-  // Expose onclick handlers
-  window.wnn_setNixonFace = setNixonFace;
-  window.wnn_animateRage = animateRage;
-  window.wnn_showStory = showStory;
-  window.wnn_nextStory = nextStory;
-  window.wnn_toggleAuto = toggleAuto;
-  window.wnn_scheduleAuto = scheduleAuto;
-  window.wnn_resetAuto = resetAuto;
-}

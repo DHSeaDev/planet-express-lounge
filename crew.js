@@ -1,5 +1,5 @@
 /**
- * crew.js  —  Planet Express Lounge v4.0
+ * crew.js  —  Planet Express Lounge
  * The Crew orchestrator — ported from Python Crew class in app.py.
  * Handles chat responses, autopilot episodes, routing, and generation tasks.
  * Runs entirely client-side. Communicates results via async callbacks / AsyncGenerators.
@@ -8,10 +8,12 @@
 import {
   FULL_CAST, CREW_WEIGHTS, INVENTIONS, BENDER_SCHEMES, AUTOPILOT_TOPICS,
   EP_PHASE_SEQUENCE, EP_PHASE_PROMPTS,
-  PROF_INV_SYS, EPISODE_TITLE_SYS, JOURNAL_SYS, PREVIOUSLY_SYS,
+  PROF_INV_SYS, MEGA_INV_SYS, RECYCLED_INV_SYS, EPISODE_TITLE_SYS, PREVIOUSLY_SYS,
   ROUTER_SYS, AGENT_KEYWORDS,
   buildSysPrompt, routeAgentByKeyword, pickLength,
   buildEpisodeRoster, getTierRoleNote, detectFocusAgent,
+  checkEasterEgg,
+  getWeeklyMission,
 } from "./prompts.js";
 import { tts } from "./tts.js";
 
@@ -30,6 +32,13 @@ export class Crew {
     // Per-session state
     this.enabled        = Object.fromEntries(FULL_CAST.map(a => [a, true]));
     this.todayInvention = "";
+    // New inventions only surface in Autopilot/chat context AFTER the user
+    // explicitly presses "Discuss with Crew" (lab.js discussInvention sets
+    // this to true). Until then, todayInvention exists (for the Lab UI /
+    // rating) but is NOT injected into system prompts or printed as a
+    // "Plot twist" — fixes inventions auto-appearing in Autopilot episodes
+    // the user never asked the crew about.
+    this.inventionDiscussed = false;
     this.benderScheme   = _pick(BENDER_SCHEMES);
 
     // Cancellation
@@ -39,6 +48,15 @@ export class Crew {
   }
 
   get signal() { return this._abortCtrl.signal; }
+
+  /**
+   * The invention as it should appear in prompts/emits — empty until the
+   * user has explicitly discussed it (Discuss with Crew). Centralizes the
+   * gating so call sites don't need to repeat the inventionDiscussed check.
+   */
+  get visibleInvention() {
+    return this.inventionDiscussed ? this.todayInvention : "";
+  }
 
   cancel() {
     this._cancelled = true;
@@ -138,17 +156,45 @@ export class Crew {
    */
   async respondToUser(sid, transcript, message, emit) {
     this._resetCancel();
+
+    // ── Easter egg intercept — pre-defined responses, no LLM cost ──────────
+    const egg = checkEasterEgg(message);
+    if (egg) {
+      emit({ type: "speaker", agent: egg.agent });
+      // Type out the egg response token by token for the same UX feel
+      const words = egg.text.split(" ");
+      for (let i = 0; i < words.length; i++) {
+        emit({ type: "token", agent: egg.agent, text: (i === 0 ? "" : " ") + words[i] });
+      }
+      emit({ type: "turn_end", agent: egg.agent });
+      await this.db.logTurn(sid, egg.agent, egg.text);
+      emit({ type: "done" });
+      return;
+    }
+
     const snip = transcript.slice(-1200);
-    const inv  = this.todayInvention
-      ? `\n(The Professor recently invented: ${this.todayInvention})`
-      : "";
+
+    // 3B: Occasionally surface a past invention from the ledger as context
+    // Fires ~25% of calls when ≥5 inventions exist — passive world-memory effect
+    let pastInvContext = "";
+    try {
+      const pastInvs = await this.db.getInventions?.();
+      if (pastInvs && pastInvs.length >= 5 && Math.random() < 0.25) {
+        const pick = pastInvs[Math.floor(Math.random() * pastInvs.length)];
+        pastInvContext = `\n(The Professor previously invented: ${pick.name} — outcome: ${pick.rating})`;
+      }
+    } catch {}
+
+    const inv  = (this.todayInvention && this.inventionDiscussed)
+      ? `\n(The Professor recently invented: ${this.todayInvention})${pastInvContext}`
+      : pastInvContext;
 
     // Turn 1: best-matched primary
     const primary               = await this.routeAgent(message, transcript);
     const [lenInstr, maxTok]    = pickLength(true);
     const sysPrimary            = buildSysPrompt(primary, lenInstr, {
       autopilot: false, chaos: this.chaos,
-      invention: this.todayInvention, scheme: this.benderScheme,
+      invention: this.visibleInvention, scheme: this.benderScheme,
     });
     const ctx1 = `CONVERSATION SO FAR:${inv}\n${snip}\n\nUSER: ${message}\n\nRespond as ${primary}. React to what the user said. Be in character.`;
 
@@ -172,7 +218,7 @@ export class Crew {
       spoken.add(nxt);
       const sys2  = buildSysPrompt(nxt, "Reply in 1-2 punchy sentences.", {
         autopilot: false, chaos: this.chaos,
-        invention: this.todayInvention, scheme: this.benderScheme,
+        invention: this.visibleInvention, scheme: this.benderScheme,
       });
       const ctx2  = `CONVERSATION SO FAR:\n${localTr}\n\nUSER asked: ${message.slice(0,120)}\nThe crew is responding. Now YOU jump in as ${nxt}. React to what was just said, add your own angle. Be unmistakably yourself. 1-2 sentences. Do NOT introduce yourself by name.`;
       const acc2  = await this._streamAgent(nxt, sys2, ctx2, 80, emit);
@@ -191,11 +237,20 @@ export class Crew {
    * @param {string} sid
    * @param {Function} emit
    */
-  async startAutopilot(sid, emit) {
+  async startAutopilot(sid, emit, seedTopic = null) {
     this._resetCancel();
     const usedTopics = new Set();
+    const weeklyMission = getWeeklyMission();
+    let firstEpisode = true;
 
     const pickTopic = () => {
+      if (firstEpisode && seedTopic) return seedTopic;
+      // 15% chance to use the weekly episode goal as the topic
+      // This makes it appear roughly once every 6-7 episodes, feel like a recurring arc
+      if (Math.random() < 0.15 && !usedTopics.has("__weekly__")) {
+        usedTopics.add("__weekly__");
+        return `[EPISODE GOAL — ${weeklyMission.urgency}] ${weeklyMission.goal}`;
+      }
       const available = AUTOPILOT_TOPICS.filter(t => !usedTopics.has(t));
       const pool = available.length ? available : AUTOPILOT_TOPICS;
       if (!available.length) usedTopics.clear();
@@ -207,6 +262,7 @@ export class Crew {
     while (!this._cancelled) {
       // ── New episode ─────────────────────────────────────────────────────
       const topic = pickTopic();
+      firstEpisode = false;
 
       // Episode title
       let epTitle = "";
@@ -225,8 +281,8 @@ export class Crew {
       }
 
       // Invention complication
-      if (this.todayInvention && Math.random() < 0.3) {
-        emit({ type: "invention_complication", invention: this.todayInvention });
+      if (this.visibleInvention && Math.random() < 0.3) {
+        emit({ type: "invention_complication", invention: this.visibleInvention });
       }
 
       let localTr    = `Episode topic: ${topic}\n`;
@@ -274,7 +330,7 @@ export class Crew {
           const sysPrompt = buildSysPrompt(agentId, lenInstr, {
             autopilot:   true,
             chaos:       this.chaos,
-            invention:   this.todayInvention,
+            invention:   this.visibleInvention,
             scheme:      this.benderScheme,
             tierNote,           // injected into system prompt
           });
@@ -285,8 +341,8 @@ export class Crew {
             const noRepeat = prevSaid
               ? `Do NOT repeat: "${prevSaid.slice(0,100)}" — say something new.\n`
               : "";
-            const invNote = agentId === "PROF" && this.todayInvention
-              ? `\nYour invention (${this.todayInvention}) is menacingly relevant.`
+            const invNote = agentId === "PROF" && this.visibleInvention
+              ? `\nYour invention (${this.visibleInvention}) is menacingly relevant.`
               : "";
             const focusNote = focusAgent && agentId !== focusAgent
               ? `\nThis is ${focusAgent}'s episode — your line should react to, challenge, or support ${focusAgent}.`
@@ -312,9 +368,10 @@ export class Crew {
           }
           lastAgent = agentId;
 
-          // Wait for TTS to finish speaking this turn before the next agent starts.
+          // Wait for TTS to finish speaking this turn before the next agent starts
+          // (falls back to a reading-time estimate if audio is muted).
           if (!this._cancelled) {
-            await tts.waitForIdle();
+            await tts.waitForIdle(acc);
           }
           // Pause point — if paused, hold here until resumed
           await this._waitIfPaused();
@@ -343,25 +400,50 @@ export class Crew {
       text = await this.llm.complete(PROF_INV_SYS, `Today's invention: ${inv}. Announce it.`, 60);
     } catch {}
     this.todayInvention = inv;
+    this.inventionDiscussed = false; // new invention — requires Discuss with Crew before auto-surfacing
     emit({ type: "invention", text, agent: "PROF" });
     return text;
   }
 
-  // ── Generate journal ────────────────────────────────────────────────────
-  async genJournal(sid, topic, emit) {
-    const hist = await this.db.getHistory(sid);
-    if (!hist.length) {
-      emit({ type: "system", text: "Nothing to journal yet!" });
-      return;
-    }
-    const tr = hist.slice(-20).map(m => `${m.agent}: ${m.content}`).join("\n");
+  /**
+   * Combine two past inventions into a Mega-Invention.
+   * Costs 150 DM (already spent by caller). Saved to ledger with isMega:true.
+   */
+  async genMegaInvention(nameA, nameB, emit) {
+    const prompt = `Combine these two inventions: "${nameA}" and "${nameB}".`;
+    let text = `Good news, everyone! I've combined the ${nameA} and the ${nameB} into something magnificent and almost certainly fatal!`;
     try {
-      const text = await this.llm.complete(JOURNAL_SYS, `Topic: ${topic}\n\n${tr}`, 250);
-      await this.db.saveJournal(sid, text);
-      emit({ type: "journal", text, agent: "PROF" });
-    } catch (e) {
-      emit({ type: "system", text: `Journal error: ${e.message}` });
-    }
+      text = await this.llm.complete(MEGA_INV_SYS, prompt, 80);
+    } catch {}
+    this.todayInvention = `${nameA} + ${nameB}`;
+    this.inventionDiscussed = false; // new invention — requires Discuss with Crew before auto-surfacing
+    emit({ type: "invention", text, agent: "PROF" });
+    return text;
+  }
+
+  /**
+   * Create a recycled invention from scrap items (free — scrap consumed by caller).
+   */
+  async genRecycledInvention(scrapNames, emit) {
+    const prompt = `You salvaged parts from these scrapped inventions: ${scrapNames}. Create something new.`;
+    let text = `Good news, everyone! From the ashes of failure, I have assembled the Salvage-O-Matic 3000 — it works by not working, which is a kind of working!`;
+    try {
+      text = await this.llm.complete(RECYCLED_INV_SYS, prompt, 65);
+    } catch {}
+    this.todayInvention = "Recycled contraption";
+    this.inventionDiscussed = false; // new invention — requires Discuss with Crew before auto-surfacing
+    emit({ type: "invention", text, agent: "PROF" });
+    return text;
+  }
+
+  /**
+   * Post-invention character critique.
+   * Picks a random non-Professor crew member and has them react in one sentence.
+   * Non-streaming (fast, 45 token cap). Called from sidepanel after invention renders.
+   */
+  /** Returns this week's episode goal, deterministically seeded by week number. */
+  getWeeklyMission() {
+    return getWeeklyMission();
   }
 
   // ── Generate "Previously on…" recap ────────────────────────────────────
@@ -388,15 +470,4 @@ function _pick(arr) {
 
 function _sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
-}
-
-// Weighted random: items = [[value, weight], ...]
-function _weightedChoice(items) {
-  const total  = items.reduce((s, [, w]) => s + w, 0);
-  let rand     = Math.random() * total;
-  for (const [val, w] of items) {
-    rand -= w;
-    if (rand <= 0) return val;
-  }
-  return items[items.length - 1][0];
 }
